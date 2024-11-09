@@ -106,7 +106,7 @@
 
         getAccessTokenHeaders() {
             const headers = new Headers();
-            headers.append("Content-Type", "application/x-www-form-urlencoded");
+            headers.set("Content-Type", "application/x-www-form-urlencoded");
 
             return headers;
         }
