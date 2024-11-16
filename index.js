@@ -1,41 +1,251 @@
 // ==UserScript==
-// @name         WorshipTools YouTube Integration
+// @name         PlanningCenter YouTube Integration
 // @namespace    http://tampermonkey.net/
-// @version      2024-11-09
-// @description  Prompts the user to log in with their Google account and lists a couple of videos from their YouTube channel
+// @version      2024-11-16
+// @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
-// @match        https://planning.worshiptools.com/app/account/*/service/*
+// @match        https://services.planningcenteronline.com/plans/*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM_setValue
 // @grant        GM_getValue
 // ==/UserScript==
 
+// You must give your browser access to show Popups/Redirects and Google Sign-In popups on the PlanningCenter page.
+
 (() => {
     "use strict";
 
-    class Authentication {
-        ACCESS_TOKEN_KEY = "ACCESS_TOKEN";
-        CLIENT_ID_KEY = "CLIENT_ID";
-        CLIENT_SECRET_KEY = "CLIENT_SECRET";
-        EXPIRY_TIME_KEY = "EXPIRY_TIME";
-        REDIRECT_URI_KEY = "REDIRECT_URI";
-        REFRESH_TOKEN_KEY = "REFRESH_TOKEN";
+    class AuthToken {
+        accessToken;
+        expiresIn;
+        tokenType;
+
+        static EXPECTED_TOKEN_TYPE = "Bearer";
+
+        constructor(
+            accessToken,
+            expiresIn,
+            tokenType,
+        ) {
+            this.accessToken = accessToken;
+            this.expiresIn = expiresIn;
+            this.tokenType = tokenType;
+        }
+
+        getAccessToken() {
+            return this.accessToken;
+        }
+
+        calculateExpirationTimestamp() {
+            const now = new Date();
+            const newSeconds = now.getSeconds() + this.expiresIn;
+            now.setSeconds(newSeconds);
+            return now.getTime();
+        }
+
+        isExpired() {
+            return Date.now() > this.calculateExpirationTimestamp();
+        }
+
+        static deserialize(data) {
+            try {
+                AuthTokenValidator.validate(data);
+            } catch (e) {
+                throw new Error(`Failed to validate auth token: ${e}`);
+            }
+
+            return new AuthToken(
+                data.access_token,
+                data.expires_in,
+                data.token_type,
+            );
+        }
+    }
+
+    class AuthTokenValidator {
+        static validate(data) {
+            if (!data) {
+                throw new Error("No data provided.");
+            }
+
+            console.debug(data);
+
+            try {
+                this.validateAccessToken(data.access_token);
+                this.validateExpiresIn(data.expires_in);
+                this.validateTokenType(data);
+            } catch (e) {
+                throw new Error(`Invalid data: ${e}`);
+            }
+        }
+
+        static validateAccessToken(token) {
+            if (!this.isValidAccessToken(token)) {
+                throw new Error("Invalid access token.");
+            }
+        }
+
+        static isValidAccessToken(token) {
+            return token && token.length > 0;
+        }
+
+        static validateExpiresIn(expiresIn) {
+            if (!this.isValidExpiresIn(expiresIn)) {
+                throw new Error("Invalid expiration time.");
+            }
+        }
+
+        static isValidExpiresIn(expiresIn) {
+            return expiresIn && expiresIn > 0;
+        }
+
+        static validateTokenType(data) {
+            if (!this.isValidTokenType(data.token_type)) {
+                throw new Error("Invalid token type.");
+            }
+        }
+
+        static isValidTokenType(tokenType) {
+            return tokenType && tokenType === AuthToken.EXPECTED_TOKEN_TYPE;
+        }
+    }
+
+    class AuthClient {
+        clientId;
 
         GOOGLE_AUTH_MODE = "popup";
-
-        GSI_SCRIPT_URL = "https://accounts.google.com/gsi/client";
-
-        TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 
         SCOPES = [
             "https://www.googleapis.com/auth/youtube.readonly",
             "https://www.googleapis.com/auth/youtube.upload",
         ];
 
+        constructor(clientId) {
+            this.clientId = clientId;
+            this.scope = this.getScope();
+        }
+
+        fetchAuthToken() {
+            return new Promise((resolve, reject) => {
+                const googleClient = this.getGoogleClient(resolve, reject);
+                googleClient.requestAccessToken();
+            });
+        }
+
+        getGoogleClient(resolve, reject) {
+            return google.accounts.oauth2.initTokenClient({
+                client_id: this.clientId,
+                scope: this.scope,
+                ux_mode: this.GOOGLE_AUTH_MODE,
+                callback: (data) => this.processTokenResponse(data, resolve, reject),
+            });
+        }
+
+        processTokenResponse(data, resolve, reject) {
+            try {
+                const loginResponse = AuthToken.deserialize(data);
+                resolve(loginResponse);
+            } catch (e) {
+                reject(`Could not deserialize response: ${e}`);
+            }
+        }
+
+        getScope() {
+            return this.SCOPES.join(this.SCOPE_SEPARATOR);
+        }
+    }
+
+    class TokenService {
+        ACCESS_TOKEN_KEY = "ACCESS_TOKEN";
+        EXPIRATION_TIMESTAMP_KEY = "EXPIRY_TIME";
+
+        constructor() { }
+
+        saveLoginResponse(loginResponse) {
+            this.setValue(this.ACCESS_TOKEN_KEY, loginResponse.getAccessToken());
+            this.setValue(this.EXPIRATION_TIMESTAMP_KEY, loginResponse.calculateExpirationTimestamp());
+        }
+
+        isUserAuthenticated() {
+            return this.getAccessToken() && !this.hasTokenExpired();
+        }
+
+        getAccessToken() {
+            return this.getValue(this.ACCESS_TOKEN_KEY);
+        }
+
+        hasTokenExpired() {
+            const expiryTime = this.getValue(this.EXPIRATION_TIMESTAMP_KEY);
+            return !expiryTime || Date.now() > expiryTime;
+        }
+
+        setValue(key, value) {
+            GM_setValue(key, value);
+        }
+
+        getValue(key) {
+            return GM_getValue(key);
+        }
+
+        reset() {
+            this.setValue(this.ACCESS_TOKEN_KEY, "");
+            this.setValue(this.EXPIRATION_TIMESTAMP_KEY, "");
+        }
+    }
+
+    class ClientIdService {
+        CLIENT_ID_KEY = "CLIENT_ID";
+
+        constructor() { }
+
+        fetchClientId() {
+            const clientId = this.getValue(this.CLIENT_ID_KEY);
+            if (!clientId) {
+                return this.showClientIdPrompt();
+            }
+
+            return clientId;
+        }
+
+        showClientIdPrompt() {
+            const clientId = prompt("Please enter your Google OAuth client ID.");
+            if (!clientId) {
+                throw new Error("No client ID provided.");
+            }
+
+            this.setClientId(clientId);
+
+            return clientId;
+        }
+
+        setClientId(clientId) {
+            this.setValue(this.CLIENT_ID_KEY, clientId);
+        }
+
+        setValue(key, value) {
+            GM_setValue(key, value);
+        }
+
+        getValue(key) {
+            return GM_getValue(key);
+        }
+
+        reset() {
+            this.setValue(this.CLIENT_ID_KEY, "");
+        }
+    }
+
+    class AuthService {
         initialized = false;
 
-        constructor() {
-            this.setClientCredentials();
+        GOOGLE_AUTH_MODE = "popup";
+        GSI_SCRIPT_URL = "https://accounts.google.com/gsi/client";
+        REDIRECT_URI = "https://services.planningcenteronline.com";
+        SCOPE_SEPARATOR = " ";
+
+        constructor(tokenService, clientIdService) {
+            this.tokenService = tokenService;
+            this.clientIdService = clientIdService;
         }
 
         async init() {
@@ -49,328 +259,54 @@
         }
 
         async injectGSIScript() {
-            return new Promise((resolve) => {
-                const script = document.createElement("script");
-                script.src = this.GSI_SCRIPT_URL;
-                script.onload = () => {
-                    resolve();
-                };
+            const script = document.createElement("script");
+            script.src = this.GSI_SCRIPT_URL;
+            document.head.appendChild(script);
 
-                document.head.appendChild(script);
+            await new Promise((resolve) => {
+                script.onload = resolve;
             });
         }
 
-        authenticateUser() {
-            return new Promise((resolve, reject) => {
-                if (!this.isTokenExpired()) {
-                    console.info("User is already authenticated.");
-                    resolve();
-                    return;
-                }
+        async login() {
+            if (this.tokenService.isUserAuthenticated()) {
+                console.info("User is already authenticated.");
+                return;
+            }
 
-                const client = google.accounts.oauth2.initCodeClient({
-                    client_id: this.clientId,
-                    scope: this.getScope(),
-                    ux_mode: this.GOOGLE_AUTH_MODE,
-                    callback: (response) => {
-                        this.fetchAccessToken(response)
-                            .then(resolve)
-                            .catch(reject);
-                    },
-                });
-
-                client.requestCode();
-            });
+            await this.authenticate();
         }
 
-        async fetchAccessToken(clientAuthorizationResponse) {
+        async authenticate() {
+            const client = this.createTokenClient();
             try {
-                const url = this.getTokenURL(clientAuthorizationResponse.code);
-                const res = await fetch(url, {
-                    method: "POST",
-                    headers: this.getAccessTokenHeaders(),
-                });
-                if (!res.ok) {
-                    throw new Error(
-                        "Failed to fetch access token from client authorization response."
-                    );
-                }
-
-                const data = await res.json();
-
-                this.handleAccessTokenResponse(data);
+                const loginResponse = await client.fetchAuthToken();
+                this.tokenService.saveLoginResponse(loginResponse);
             } catch (e) {
-                console.error(e);
+                throw new Error(`Failed to fetch access token: ${e}`);
             }
         }
 
-        getAccessTokenHeaders() {
-            const headers = new Headers();
-            headers.set("Content-Type", "application/x-www-form-urlencoded");
+        createTokenClient() {
+            const clientId = this.clientIdService.fetchClientId();
 
-            return headers;
-        }
-
-        handleAccessTokenResponse(data) {
-            if (!this.isValidAccessTokenResponse(data)) {
-                throw new Error("Invalid access token response.");
-            }
-
-            this.saveAccessTokenResponse(data);
-        }
-
-        isValidAccessTokenResponse(data) {
-            return data && data.access_token && data.expires_in && data.refresh_token;
-        }
-
-        saveAccessTokenResponse(data) {
-            this.setValue(this.ACCESS_TOKEN_KEY, data.access_token);
-            this.setValue(
-                this.EXPIRY_TIME_KEY,
-                this.calculateExpiryTime(data.expires_in)
-            );
-            this.setValue(this.REFRESH_TOKEN_KEY, data.refresh_token);
-        }
-
-        calculateExpiryTime(seconds) {
-            const now = new Date();
-            const newSeconds = now.getSeconds() + seconds;
-            now.setSeconds(newSeconds);
-            return now.getTime();
-        }
-
-        processCredentials(credentials) {
-            try {
-                this.validateAndSaveCredentials(credentials);
-            } catch (e) {
-                console.info(credentials);
-                throw new Error(`Invalid OAuth file: ${e}`);
-            }
-        }
-
-        validateAndSaveCredentials(oauthData) {
-            if (!this.isValidOAuthData(oauthData)) {
-                throw new Error("Invalid OAuth data.");
-            }
-
-            this.saveCredentials(oauthData);
-        }
-
-        saveCredentials(oauthData) {
-            this.setValue(this.CLIENT_ID_KEY, oauthData.web.client_id);
-            this.setValue(this.CLIENT_SECRET_KEY, oauthData.web.client_secret);
-            this.setValue(this.REDIRECT_URI_KEY, oauthData.web.javascript_origins[0]);
-            this.setClientCredentials();
+            return new AuthClient(clientId);
         }
 
         getAccessToken() {
-            return this.getValue(this.ACCESS_TOKEN_KEY);
-        }
-
-        areClientCredentialsSet() {
-            return this.clientId && this.clientSecret && this.redirectUri;
-        }
-
-        setClientCredentials() {
-            this.clientId = this.getValue(this.CLIENT_ID_KEY);
-            this.clientSecret = this.getValue(this.CLIENT_SECRET_KEY);
-            this.redirectUri = this.getValue(this.REDIRECT_URI_KEY);
-        }
-
-        isValidOAuthData(oauthData) {
-            return oauthData
-                && oauthData.web
-                && oauthData.web.client_id
-                && oauthData.web.client_secret
-                && oauthData.web.javascript_origins
-                && oauthData.web.javascript_origins[0];
-        }
-
-        getScope() {
-            return this.SCOPES.join(" ");
-        }
-
-        isTokenExpired() {
-            const expiryTime = this.getValue(this.EXPIRY_TIME_KEY);
-            return !expiryTime || Date.now() > expiryTime;
-        }
-
-        getTokenURL(code) {
-            const url = new URL(this.TOKEN_ENDPOINT);
-            url.searchParams.append("code", code);
-            url.searchParams.append("client_id", this.clientId);
-            url.searchParams.append("client_secret", this.clientSecret);
-            url.searchParams.append("redirect_uri", this.redirectUri);
-            url.searchParams.append("grant_type", "authorization_code");
-
-            return url.toString();
-        }
-
-        setValue(key, value) {
-            GM_setValue(key, value);
-        }
-
-        getValue(key) {
-            return GM_getValue(key);
+            return this.tokenService.getAccessToken();
         }
 
         reset() {
-            this.setValue(this.ACCESS_TOKEN_KEY, "");
-            this.setValue(this.EXPIRY_TIME_KEY, "");
-            this.setValue(this.REFRESH_TOKEN_KEY, "");
-            this.setValue(this.CLIENT_ID_KEY, "");
-            this.setValue(this.CLIENT_SECRET_KEY, "");
-            this.setValue(this.REDIRECT_URI_KEY, "");
-            this.setValue(this.EXPIRY_TIME_KEY, "");
+            this.tokenService.reset();
+            this.clientIdService.reset();
             this.initialized = false;
         }
     }
 
-    class PopupManager {
-        POPUP_ID = "upload-popup";
+    class YouTubeService {
+        authenticationService;
 
-        OAUTH_CLIENT_URL = "https://console.cloud.google.com/apis/credentials?project=yt-stream-automation";
-
-        showingPopup = false;
-
-        constructor(auth) {
-            this.auth = auth;
-        }
-
-        async init() {
-            await this.auth.init();
-        }
-
-        async authenticate() {
-            if (this.auth.areClientCredentialsSet()) {
-                await this.auth.authenticateUser();
-            } else {
-                await this.showCredentialsPopup();
-            }
-        }
-
-        async handleCredentialsUpload(event) {
-            const file = event.target.files[0];
-            const reader = new FileReader();
-            reader.onload = this.onCredentialsRead.bind(this);
-            reader.readAsText(file);
-        }
-
-        async onCredentialsRead(event) {
-            const rawData = event.target.result;
-            if (!rawData) {
-                console.error("Failed to read file.");
-                return;
-            }
-
-            try {
-                const data = JSON.parse(rawData);
-                this.auth.processCredentials(data);
-                this.removeCredentialsPopup();
-                await this.auth.authenticateUser();
-            } catch (e) {
-                console.error("Invalid OAuth file.");
-                return;
-            }
-        }
-
-        removeCredentialsPopup() {
-            const popup = document.getElementById(this.POPUP_ID);
-            if (popup) {
-                document.body.removeChild(popup);
-            }
-        }
-
-        showCredentialsPopup() {
-            return new Promise((resolve) => {
-                if (this.showingPopup) {
-                    return;
-                }
-
-                this.showingPopup = true;
-
-                const popup = this.createPopup();
-                document.body.appendChild(popup);
-
-                const fileInput = document.getElementById("file-input");
-                fileInput.addEventListener("change", async (event) => {
-                    await this.handleCredentialsUpload(event);
-                    resolve();
-                });
-            });
-        }
-
-        createPopup() {
-            const popup = document.createElement("div");
-            popup.id = this.POPUP_ID;
-            popup.style.position = "fixed";
-            popup.style.top = "50%";
-            popup.style.left = "50%";
-            popup.style.transform = "translate(-50%, -50%)";
-            popup.style.padding = "20px";
-            popup.style.backgroundColor = "#fff";
-            popup.style.borderRadius = "8px";
-            popup.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.1)";
-            popup.style.maxWidth = "400px";
-            popup.style.width = "100%";
-            popup.style.boxSizing = "border-box";
-            popup.style.textAlign = "center";
-
-            const title = document.createElement("h2");
-            title.style.color = "#333";
-            title.textContent = "Upload OAuth Client";
-            popup.appendChild(title);
-
-            const link = document.createElement("a");
-            link.href = this.OAUTH_CLIENT_URL;
-            link.textContent = "Download the OAuth Client here";
-            link.target = "_blank";
-            link.style.color = "#007bff";
-            link.style.textDecoration = "none";
-            link.style.display = "block";
-            link.style.marginTop = "5px";
-            popup.appendChild(link);
-
-            const fileInput = document.createElement("input");
-            fileInput.type = "file";
-            fileInput.accept = ".json";
-            fileInput.id = "file-input";
-            fileInput.style.display = "none";
-            popup.appendChild(fileInput);
-
-            const uploadButton = document.createElement("button");
-            uploadButton.id = "upload-button";
-            uploadButton.textContent = "Upload";
-            uploadButton.style.padding = "10px 20px";
-            uploadButton.style.marginTop = "20px";
-            uploadButton.style.border = "none";
-            uploadButton.style.borderRadius = "4px";
-            uploadButton.style.backgroundColor = "#007bff";
-            uploadButton.style.color = "#fff";
-            uploadButton.style.cursor = "pointer";
-            uploadButton.style.fontSize = "16px";
-            uploadButton.style.transition = "background-color 0.3s";
-
-            uploadButton.onmouseover = () => (uploadButton.style.backgroundColor = "#0056b3");
-            uploadButton.onmouseout = () => (uploadButton.style.backgroundColor = "#007bff");
-
-            popup.appendChild(uploadButton);
-
-            this.addEventListeners(uploadButton, fileInput);
-
-            return popup;
-        }
-
-        addEventListeners(uploadButton, fileInput) {
-            uploadButton.addEventListener("click", () => fileInput.click());
-        }
-
-        getAccessToken() {
-            return this.auth.getAccessToken();
-        }
-    }
-
-    class YouTubeManager {
         HTTP_UNAUTHORIZED_CODE = 401;
         HTTP_FORBIDDEN_CODE = 403;
 
@@ -378,21 +314,27 @@
 
         YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3";
 
-        constructor(poupManager) {
-            this.popupManager = poupManager;
+        AUTHORIZATION_HEADER_KEY = "Authorization";
+
+        BEARER_TOKEN_PREFIX = "Bearer";
+
+        DUMMY_ENDPOINT = "/channels?part=snippet&mine=true";
+
+        constructor(authenticationService) {
+            this.authenticationService = authenticationService;
         }
 
         async init() {
-            await this.popupManager.init();
+            await this.authenticationService.init();
         }
 
         async dummyApiRequest() {
-            const endpoint = "/channels?part=snippet&mine=true";
-            await this.executeApiRequest(endpoint);
+            console.info("Making dummy API request.");
+            await this.executeApiRequest(this.DUMMY_ENDPOINT);
         }
 
         async executeApiRequest(endpoint, options) {
-            const url = `${this.YOUTUBE_API_BASE_URL}${endpoint}`;
+            const url = this.buildUrl(endpoint);
 
             if (!options) {
                 options = this.getRequestOptions();
@@ -400,23 +342,33 @@
 
             try {
                 const res = await fetch(url, options);
-
-                if (res.ok) {
-                    const data = await res.json();
-
-                    console.info(data);
-
-                    return data;
-                } else if (this.isUnauthorized(res.status)) {
-                    await this.popupManager.authenticate();
-                    options.headers.set("Authorization", this.getBearerToken());
-                    return await this.executeApiRequest(endpoint, options);
-                }
-
-                throw new Error("Failed to fetch YouTube data.");
+                return await this.handleResponse(res, endpoint, options);
             } catch (err) {
                 console.error(err);
             }
+        }
+
+        buildUrl(endpoint) {
+            return `${this.YOUTUBE_API_BASE_URL}${endpoint}`;
+        }
+
+        async handleResponse(res, endpoint, options) {
+            if (res.ok) {
+                const data = await res.json();
+                console.info(data);
+                return data;
+            } else if (this.isUnauthorized(res.status)) {
+                await this.authenticationService.login();
+                options.headers.set(this.AUTHORIZATION_HEADER_KEY, this.getBearerToken());
+                await this.delay(this.RETRY_DELAY_MS);
+                return await this.executeApiRequest(endpoint, options);
+            }
+
+            throw new Error("Failed to fetch YouTube data.");
+        }
+
+        delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         }
 
         isUnauthorized(status) {
@@ -435,29 +387,25 @@
         getRequestHeaders() {
             const headers = new Headers();
             const bearerToken = this.getBearerToken();
-            headers.set("Authorization", bearerToken);
+            headers.set(this.AUTHORIZATION_HEADER_KEY, bearerToken);
 
             return headers;
         }
 
         getBearerToken() {
-            const accessToken = this.getAccessToken();
-            return `Bearer ${accessToken}`;
-        }
-
-
-        getAccessToken() {
-            return this.popupManager.getAccessToken();
+            const accessToken = this.authenticationService.getAccessToken();
+            return `${this.BEARER_TOKEN_PREFIX} ${accessToken}`;
         }
     }
 
     (async () => {
-        const auth = new Authentication();
-        const popupManager = new PopupManager(auth);
-        const youtubeManager = new YouTubeManager(popupManager);
+        const tokenService = new TokenService();
+        const clientIdService = new ClientIdService();
+        const auth = new AuthService(tokenService, clientIdService);
+        const youtubeManager = new YouTubeService(auth);
 
         await youtubeManager.init();
 
-        youtubeManager.dummyApiRequest();
+        await youtubeManager.dummyApiRequest();
     })();
 })();
