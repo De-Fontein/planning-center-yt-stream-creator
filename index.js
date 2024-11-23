@@ -8,6 +8,7 @@
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
 // ==/UserScript==
 
 // You must give your browser access to show Popups/Redirects and Google Sign-In popups on the PlanningCenter page.
@@ -15,6 +16,9 @@
 (() => {
     "use strict";
 
+    /**
+     * Represents a key-value storage for settings.
+     */
     class SettingsStorage {
         /**
          * Loads a value from the settings storage.
@@ -22,7 +26,10 @@
          * @returns {unknown}
          */
         static load(key) {
-            return GM_getValue(key);
+            // eslint-disable-next-line no-undef
+            const value = GM_getValue(key);
+            console.debug(`Loaded value for key ${key}: ${value}`);
+            return value;
         }
 
         /**
@@ -31,6 +38,8 @@
          * @param {unknown} value
          */
         static save(key, value) {
+            console.debug(`Saving value for key ${key}: ${value}`);
+            // eslint-disable-next-line no-undef
             GM_setValue(key, value);
         }
 
@@ -40,7 +49,9 @@
          * @returns {unknown}
          */
         static delete(key) {
-            this.save(key, "");
+            console.debug(`Deleting value for key: ${key}`);
+            // eslint-disable-next-line no-undef
+            GM_deleteValue(key);
         }
     }
 
@@ -85,10 +96,11 @@
 
         /**
          * Deserializes the data received from the Google OAuth API into an auth token.
-         * @param {object} data The data to deserialize.
+         * @param {object} data The JSON data to deserialize.
          * @returns {AuthToken} The deserialized auth token.
          */
         static deserialize(data) {
+            console.debug("Deserializing auth token data.");
             try {
                 AuthTokenValidator.validate(data);
             } catch (e) {
@@ -107,28 +119,36 @@
          * @returns {number} The expiration timestamp of the access token.
          */
         calculateExpirationTimestamp() {
+            console.debug("Calculating expiration timestamp.");
             const now = new Date();
             const newSeconds = now.getSeconds() + this.expiresIn;
             now.setSeconds(newSeconds);
             return now.getTime();
         }
 
+        /**
+         * Gets the access token.
+         * @returns {string} The access token.
+         */
         getAccessToken() {
+            console.debug(`Getting access token: ${this.accessToken}`);
             return this.accessToken;
         }
     }
 
+    /**
+     * Validates the data received from the Google OAuth API.
+     */
     class AuthTokenValidator {
         /**
          * Validates whether the data received from the Google OAuth API is a valid auth token.
          * @param {object} data The data to validate.
          */
         static validate(data) {
+            console.debug("Validating auth token data.");
             if (!data) {
                 throw new Error("No data provided.");
             }
-
-            console.debug(data);
 
             try {
                 this.validateAccessToken(data.access_token);
@@ -170,6 +190,9 @@
         }
     }
 
+    /**
+     * Represents a client used to authenticate the user with the Google OAuth API.
+     */
     class AuthClient {
         /**
          * The OAuth client ID used to authenticate the user.
@@ -199,6 +222,7 @@
          * @returns {Promise<AuthToken>}
          */
         fetchAuthToken() {
+            console.info("Fetching auth token.");
             return new Promise((resolve, reject) => {
                 const googleClient = this.getGoogleClient(resolve, reject);
                 googleClient.requestAccessToken();
@@ -206,6 +230,7 @@
         }
 
         getGoogleClient(resolve, reject) {
+            // eslint-disable-next-line no-undef
             return google.accounts.oauth2.initTokenClient({
                 client_id: this.clientId,
                 scope: this.scope,
@@ -217,6 +242,7 @@
         processTokenResponse(data, resolve, reject) {
             try {
                 const loginResponse = AuthToken.deserialize(data);
+                console.info(loginResponse);
                 resolve(loginResponse);
             } catch (e) {
                 reject(`Could not deserialize response: ${e}`);
@@ -228,19 +254,35 @@
         }
     }
 
+    /**
+     * Represents a service that manages authentication tokens for the user.
+     */
     class TokenService {
         ACCESS_TOKEN_KEY = "ACCESS_TOKEN";
         EXPIRATION_TIMESTAMP_KEY = "EXPIRY_TIME";
 
         constructor() { }
 
-        saveLoginResponse(loginResponse) {
-            SettingsStorage.save(this.ACCESS_TOKEN_KEY, loginResponse.getAccessToken());
-            SettingsStorage.save(this.EXPIRATION_TIMESTAMP_KEY, loginResponse.calculateExpirationTimestamp());
+        /**
+         * Saves the authentication token to the settings storage.
+         * @param {AuthToken} authToken
+         */
+        saveAuthToken(authToken) {
+            const accessToken = authToken.getAccessToken();
+            const expirationTimestamp = authToken.calculateExpirationTimestamp();
+            SettingsStorage.save(this.ACCESS_TOKEN_KEY, accessToken);
+            SettingsStorage.save(this.EXPIRATION_TIMESTAMP_KEY, expirationTimestamp);
         }
 
         isUserAuthenticated() {
+            console.info("Checking if user is authenticated.");
             return this.getAccessToken() && !this.hasTokenExpired();
+        }
+
+        reset() {
+            console.info("Resetting token service.");
+            SettingsStorage.delete(this.ACCESS_TOKEN_KEY);
+            SettingsStorage.delete(this.EXPIRATION_TIMESTAMP_KEY);
         }
 
         getAccessToken() {
@@ -251,13 +293,11 @@
             const expiryTime = SettingsStorage.load(this.EXPIRATION_TIMESTAMP_KEY);
             return !expiryTime || Date.now() > expiryTime;
         }
-
-        reset() {
-            SettingsStorage.delete(this.ACCESS_TOKEN_KEY);
-            SettingsStorage.delete(this.EXPIRATION_TIMESTAMP_KEY);
-        }
     }
 
+    /**
+     * Represents a service that manages OAuth client IDs for the user.
+     */
     class ClientIdService {
         CLIENT_ID_KEY = "CLIENT_ID";
 
@@ -268,6 +308,7 @@
          * @returns {string} The OAuth client ID.
          */
         fetchClientId() {
+            console.info("Fetching OAuth client ID.");
             const clientId = SettingsStorage.load(this.CLIENT_ID_KEY);
             if (!clientId) {
                 return this.showClientIdPrompt();
@@ -292,6 +333,9 @@
         }
     }
 
+    /**
+     * Represents a service that manages authentication for the user.
+     */
     class AuthService {
         /**
          * Indicates whether the authentication service has been initialized.
@@ -333,6 +377,7 @@
          * @returns {Promise<void>}
          */
         async init() {
+            console.debug("Initializing authentication service.");
             if (this.initialized) {
                 return;
             }
@@ -355,6 +400,11 @@
             await this.authenticate();
         }
 
+        logout() {
+            console.info("Logging user out.");
+            this.tokenService.reset();
+        }
+
         async injectGSIScript() {
             const script = document.createElement("script");
             script.src = this.GSI_SCRIPT_URL;
@@ -366,10 +416,12 @@
         }
 
         async authenticate() {
+            console.info("Authenticating user.");
+
             const client = this.createTokenClient();
             try {
                 const loginResponse = await client.fetchAuthToken();
-                this.tokenService.saveLoginResponse(loginResponse);
+                this.tokenService.saveAuthToken(loginResponse);
             } catch (e) {
                 throw new Error(`Failed to fetch access token: ${e}`);
             }
@@ -395,6 +447,9 @@
         }
     }
 
+    /**
+     * A service that interacts with the YouTube API to create and manage streams.
+     */
     class YouTubeApiService {
         /**
          * The authentication service used to authenticate the user.
@@ -405,7 +460,7 @@
         HTTP_UNAUTHORIZED_CODE = 401;
         HTTP_FORBIDDEN_CODE = 403;
 
-        RETRY_DELAY_MS = 2500;
+        RETRY_DELAY_MS = 1000;
 
         YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3";
 
@@ -426,14 +481,11 @@
          * @param {unknown} options - The options to pass to the fetch request.
          * @returns {Promise<unknown>} The response data from the API.
          */
-        async executeApiRequest(endpoint, options) {
+        async executeRequest(endpoint, options = {}) {
             const url = this.buildUrl(endpoint);
-
-            if (!options) {
-                options = this.getRequestOptions();
-            } else if (!options.headers[this.AUTHORIZATION_HEADER_KEY]) {
-                options.headers[this.AUTHORIZATION_HEADER_KEY] = this.getBearerToken();
-            }
+            options.headers = options.headers || new Headers();
+            options.headers.set(this.AUTHORIZATION_HEADER_KEY, this.getBearerToken());
+            console.info(`Executing request to ${url}`);
 
             try {
                 const res = await fetch(url, options);
@@ -444,16 +496,15 @@
         }
 
         async handleResponse(res, endpoint, options) {
+            console.debug(res);
             if (res.ok) {
-                const data = await res.json();
-                console.info(data);
-                return data;
+                return await res.json();
             } else if (this.isUnauthorized(res.status)) {
                 await this.authenticationService.login();
-                options.headers[this.AUTHORIZATION_HEADER_KEY] = this.getBearerToken();
                 // This delay is here to prevent the API from being spammed with requests if the user is not authenticated.
                 await this.delay(this.RETRY_DELAY_MS);
-                return await this.executeApiRequest(endpoint, options);
+                // Retry the request after re-authentication
+                return await this.executeRequest(endpoint, options);
             }
 
             throw new Error("Failed to fetch YouTube data.");
@@ -596,7 +647,7 @@
          */
         async dummyApiRequest() {
             console.info("Making dummy API request.");
-            await this.apiService.executeApiRequest(this.DUMMY_ENDPOINT);
+            return await this.apiService.executeRequest(this.DUMMY_ENDPOINT);
         }
 
         /**
@@ -604,23 +655,106 @@
          * @param {YouTubeStream} stream
          */
         async uploadStream(stream) {
-            console.info("Creating YouTube stream.");
-            await this.apiService.executeApiRequest(this.CREATE_STREAM_ENDPOINT, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
+            console.log("Uploading stream to YouTube.");
+
+            const headers = this.apiService.getRequestHeaders();
+            headers.set("Content-Type", "application/json");
+
+            const data = {
+                snippet: {
+                    title: stream.getTitle(),
+                    description: stream.getDescription(),
+                    scheduledStartTime: stream.getStartTime().toISOString(),
                 },
-                body: JSON.stringify({
-                    snippet: {
-                        title: stream.getTitle(),
-                        description: stream.getDescription(),
-                        scheduledStartTime: stream.getStartTime().toISOString(),
-                    },
-                    status: {
-                        privacyStatus: stream.getVisibility(),
-                    }
-                }),
+                status: {
+                    privacyStatus: stream.getVisibility(),
+                }
+            };
+
+            await this.apiService.executeRequest(this.CREATE_STREAM_ENDPOINT, {
+                method: "POST",
+                headers: headers,
+                body: JSON.stringify(data),
             });
+        }
+    }
+
+    /**
+     * Handles everything related to the DOM.
+     */
+    class DomService {
+        /**
+         * The YouTube stream service used to interact with the YouTube API.
+         * @type {YouTubeStreamService}
+         * @private
+         */
+        youtubeStreamService;
+
+        /**
+         *
+         * @param {YouTubeStreamService} youtubeStreamService
+         */
+        constructor(youtubeStreamService) {
+            this.youtubeStreamService = youtubeStreamService;
+        }
+
+        init() {
+            console.debug("Initializing DOM service.");
+            this.createStreamButton();
+        }
+
+        createStreamButton() {
+            console.debug("Creating stream button.");
+            const button = document.querySelector(`button[aria-label="Share"]`);
+            const youtubeButton = button.cloneNode(true);
+            youtubeButton.setAttribute("aria-label", "New Stream");
+            youtubeButton.innerText = "New Stream";
+            button.parentNode.prepend(youtubeButton);
+
+            youtubeButton.addEventListener("click", this.onStreamButtonClick.bind(this));
+        }
+
+        async onStreamButtonClick() {
+            console.info("Stream button clicked.");
+
+            const songs = this.getSongTitles();
+            if (songs.length === 0) {
+                console.error("No songs found.");
+                return;
+            }
+
+            console.info(`Found ${songs.length} songs.`);
+            console.info(songs);
+
+            // const stream = new YouTubeStream("Test Stream", new Date());
+            // await this.youtubeStreamService.uploadStream(stream);
+            // console.info("Stream uploaded.");
+        }
+
+        getSongTitles() {
+            console.info("Getting song titles.");
+            const songTitles = [];
+
+            const orderOfServiceTable = document.querySelector(`div[data-rbd-droppable-id="orderOfServiceTable"]`);
+            if (!orderOfServiceTable) {
+                console.error("Could not find order of service table.");
+                return;
+            }
+
+            orderOfServiceTable.querySelectorAll("p").forEach((paragraph) => {
+                const title = this.getSongTitleFromParagraph(paragraph);
+                if (title) {
+                    songTitles.push(title);
+                }
+            });
+
+            return songTitles;
+        }
+
+        getSongTitleFromParagraph(paragraph) {
+            const div = paragraph.closest("div");
+            const span = div ? div.querySelector("span") : null;
+            return span ? paragraph.textContent : null;
         }
     }
 
@@ -630,12 +764,10 @@
         const authService = new AuthService(tokenService, clientIdService);
         const apiService = new YouTubeApiService(authService);
         const youtubeStreamService = new YouTubeStreamService(apiService);
+        const domService = new DomService(youtubeStreamService);
 
         await authService.init();
 
-        await youtubeStreamService.dummyApiRequest();
-
-        // const stream = new YouTubeStream("Test Stream", new Date());
-        // await youtubeStreamService.uploadStream(stream);
+        domService.init();
     })();
 })();
