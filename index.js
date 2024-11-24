@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
 // @version      2024-11-23
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
@@ -206,8 +206,6 @@
          */
         scope;
 
-        GOOGLE_AUTH_MODE = "popup";
-
         SCOPES = [
             "https://www.googleapis.com/auth/youtube",
         ];
@@ -234,7 +232,6 @@
             return google.accounts.oauth2.initTokenClient({
                 client_id: this.clientId,
                 scope: this.scope,
-                ux_mode: this.GOOGLE_AUTH_MODE,
                 callback: (data) => this.processTokenResponse(data, resolve, reject),
             });
         }
