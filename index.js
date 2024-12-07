@@ -239,7 +239,7 @@
         processTokenResponse(data, resolve, reject) {
             try {
                 const loginResponse = AuthToken.deserialize(data);
-                console.info(loginResponse);
+                console.info("Login response:", loginResponse);
                 resolve(loginResponse);
             } catch (e) {
                 reject(`Could not deserialize response: ${e}`);
@@ -543,6 +543,15 @@
     }
 
     /**
+     * Represents the visibility status of a YouTube stream.
+     */
+    class StreamVisibility {
+        static PUBLIC = "public";
+        static UNLISTED = "unlisted";
+        static PRIVATE = "private";
+    }
+
+    /**
      * Represents a YouTube stream that can be uploaded to YouTube.
      */
     class YouTubeStream {
@@ -570,18 +579,26 @@
          */
         visibility;
 
-        PUBLIC_STREAM_VISIBILITY = "public";
-        UNLISTED_STREAM_VISIBILITY = "unlisted";
-        PRIVATE_STREAM_VISIBILITY = "private";
+        constructor() {
+            this.title = "";
+            this.startTime = new Date();
+            this.visibility = StreamVisibility.PRIVATE; // TODO: Change this to public by default
+        }
 
         /**
-         * @param {string} title - The title of the stream.
-         * @param {Date} startTime - The scheduled start time of the stream.
+         * Serializes the stream data into a format that can be uploaded to YouTube.
          */
-        constructor(title, startTime) {
-            this.title = title;
-            this.startTime = startTime;
-            this.visibility = this.PRIVATE_STREAM_VISIBILITY;
+        serialize() {
+            return {
+                snippet: {
+                    title: stream.getTitle(),
+                    description: stream.getDescription(),
+                    scheduledStartTime: stream.getStartTime().toISOString(),
+                },
+                status: {
+                    privacyStatus: stream.getVisibility(),
+                },
+            }
         }
 
         getTitle() {
@@ -590,6 +607,7 @@
 
         setTitle(title) {
             this.title = title;
+            return this;
         }
 
         getDescription() {
@@ -598,6 +616,7 @@
 
         setDescription(description) {
             this.description = description;
+            return this;
         }
 
         getStartTime() {
@@ -606,6 +625,7 @@
 
         setStartTime(startTime) {
             this.startTime = startTime;
+            return this;
         }
 
         getVisibility() {
@@ -614,6 +634,7 @@
 
         setVisibility(visibility) {
             this.visibility = visibility;
+            return this;
         }
     }
 
@@ -657,16 +678,7 @@
             const headers = this.apiService.getRequestHeaders();
             headers.set("Content-Type", "application/json");
 
-            const data = {
-                snippet: {
-                    title: stream.getTitle(),
-                    description: stream.getDescription(),
-                    scheduledStartTime: stream.getStartTime().toISOString(),
-                },
-                status: {
-                    privacyStatus: stream.getVisibility(),
-                }
-            };
+            const data = stream.serialize();
 
             await this.apiService.executeRequest(this.CREATE_STREAM_ENDPOINT, {
                 method: "POST",
@@ -676,82 +688,299 @@
         }
     }
 
+    class PlanningCenterService {
+        static API_BASE_URL = "https://api.planningcenteronline.com/services/v2";
+
+        constructor() { }
+
+        /**
+         * Gets a plan from PlanningCenter by its ID.
+         * @param {number} id the ID of the plan
+         * @returns {Promise<object>} the plan data
+         */
+        async fetchPlan(id) {
+            const url = this.buildPlanUrl(id);
+
+            try {
+                return await this.fetchJsonData(url);
+            } catch (error) {
+                throw new Error(`Failed to fetch plan: ${error}`);
+            }
+        }
+
+        /**
+         * Gets the notes in a plan from PlanningCenter by its ID.
+         * @param {number} planId the ID of the plan
+         * @returns {Promise<object>} the notes in the plan
+         */
+        async fetchNotes(planId) {
+            const url = `${this.buildPlanUrl(planId)}/notes`;
+
+            try {
+                return await this.fetchJsonData(url);
+            } catch (error) {
+                throw new Error(`Failed to fetch notes: ${error}`);
+            }
+        }
+
+        /**
+         * Gets the songs in a plan from PlanningCenter by its ID.
+         * @param {number} planId the ID of the plan
+         * @returns {Promise<object>} the songs in the plan
+         */
+        async fetchSongs(planId) {
+            const items = await this.fetchItems(planId);
+            const songIds = items.data.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
+
+            try {
+                const promises = songIds.map((songId) => this.fetchSong(songId));
+                return await Promise.all(promises);
+            } catch (error) {
+                throw new Error(`Failed to fetch songs: ${error}`);
+            }
+        }
+
+        async fetchSong(songId) {
+            const url = `${PlanningCenterService.API_BASE_URL}/songs/${songId}`;
+
+            try {
+                return await this.fetchJsonData(url);
+            } catch (error) {
+                throw new Error(`Failed to fetch song: ${error}`);
+            }
+        }
+
+        async fetchItems(planId) {
+            const url = `${this.buildPlanUrl(planId)}/items`;
+
+            try {
+                return await this.fetchJsonData(url);
+            } catch (error) {
+                throw new Error(`Failed to fetch items: ${error}`);
+            }
+        }
+
+        async fetchJsonData(url) {
+            const res = await fetch(url, { credentials: "include" });
+            return await res.json();
+        }
+
+        buildPlanUrl(id) {
+            return `${PlanningCenterService.API_BASE_URL}/plans/${id}`;
+        }
+    }
+
     /**
      * Handles everything related to the DOM.
      */
     class DomService {
+        static ORIGINAL_BUTTON_SELECTOR = `button[aria-label="Share"]`;
+
+        constructor() { }
+
+        /**
+         * Creates a button that allows the user to create a stream.
+         */
+        createStreamButton() {
+            console.debug("Creating stream button.");
+
+            const originalButton = document.querySelector(DomService.ORIGINAL_BUTTON_SELECTOR);
+
+            const youtubeButton = originalButton.cloneNode(true);
+            youtubeButton.setAttribute("aria-label", "New Stream");
+            youtubeButton.innerText = "New Stream";
+
+            originalButton.parentNode.prepend(youtubeButton);
+
+            return youtubeButton;
+        }
+
+        /**
+         * Gets the ID of the plan from the URL.
+         * @returns {number}
+         */
+        getPlanId() {
+            const url = new URL(window.location.href);
+            const rawId = url.pathname.split("/").pop();
+            return Number(rawId);
+        }
+
+        /**
+         * Shows a preview of the stream that will be created, and allows the user to confirm the stream creation.
+         * @param {YouTubeStream} stream - The stream to preview.
+         */
+        confirmStreamCreation(stream) {
+            return confirm(`Do you want to create a stream titled "${stream.getTitle()}"?`);
+        }
+    }
+
+    class DateFormatter {
+        static LOCALE_LANGUAGE = "nl-NL";
+
+        static YEAR_FORMAT = "numeric";
+        static MONTH_FORMAT = "2-digit";
+        static DAY_FORMAT = "2-digit";
+
+        static format(date) {
+            const options = {
+                year: DateFormatter.YEAR_FORMAT,
+                month: DateFormatter.MONTH_FORMAT,
+                day: DateFormatter.DAY_FORMAT,
+            };
+
+            return date.toLocaleString(DateFormatter.LOCALE_LANGUAGE, options);
+        }
+    }
+
+    /**
+     * Manages the streams that are created and uploaded to YouTube.
+     */
+    class StreamManager {
+        static PREACHER_NOTE_CATEGORY = "Spreker";
+        static THEME_NOTE_CATEGORY = "Thema";
+        static DESCRIPTION_TEMPLATE = [
+            "De diensten beginnen elke zondag om 10:00 uur.",
+            "",
+            "Liederen",
+            "{SONGS}",
+            "",
+            "Informatie",
+            "Wil je meer weten over kerk De Fontein of in contact komen met ons? Bezoek dan onze website https://www.kerkdefontein.nl/",
+            "Liever mailen? Dat kan via info@kerkdefontein.nl",
+        ].join("\n");
+
         /**
          * The YouTube stream service used to interact with the YouTube API.
          * @type {YouTubeStreamService}
-         * @private
          */
         youtubeStreamService;
 
         /**
-         *
-         * @param {YouTubeStreamService} youtubeStreamService
+         * The PlanningCenter service used to interact with the PlanningCenter API.
+         * @type {PlanningCenterService}
          */
-        constructor(youtubeStreamService) {
+        planningCenterService;
+
+        /**
+         * @param {DomService} domService
+         */
+        domService;
+
+        /**
+         * @param {YouTubeStreamService} youtubeStreamService
+         * @param {PlanningCenterService} planningCenterService
+         * @param {DomService} domService
+         */
+        constructor(youtubeStreamService, planningCenterService, domService) {
             this.youtubeStreamService = youtubeStreamService;
+            this.planningCenterService = planningCenterService;
+            this.domService = domService;
         }
 
+        /**
+         * Initializes the stream manager.
+         */
         init() {
-            console.debug("Initializing DOM service.");
-            this.createStreamButton();
+            console.info("Initializing stream manager.");
+
+            const planId = this.domService.getPlanId();
+            const streamButton = this.domService.createStreamButton();
+
+            streamButton.addEventListener("click", () => this.onStreamButtonClick(planId));
         }
 
-        createStreamButton() {
-            console.debug("Creating stream button.");
-            const button = document.querySelector(`button[aria-label="Share"]`);
-            const youtubeButton = button.cloneNode(true);
-            youtubeButton.setAttribute("aria-label", "New Stream");
-            youtubeButton.innerText = "New Stream";
-            button.parentNode.prepend(youtubeButton);
-
-            youtubeButton.addEventListener("click", this.onStreamButtonClick.bind(this));
-        }
-
-        async onStreamButtonClick() {
+        /**
+         * Creates a stream and uploads it to YouTube.
+         * @param {number} planId - The ID of the plan to create a stream for.
+         */
+        async onStreamButtonClick(planId) {
             console.info("Stream button clicked.");
 
-            const songs = this.getSongTitles();
-            if (songs.length === 0) {
-                console.error("No songs found.");
+            const stream = await this.getStreamFromPlanId(planId);
+
+            const confirmed = this.domService.confirmStreamCreation(stream);
+            if (!confirmed) {
+                console.info("Stream creation cancelled.");
                 return;
             }
-
-            console.info(`Found ${songs.length} songs.`);
-            console.info(songs);
-
-            // const stream = new YouTubeStream("Test Stream", new Date());
-            // await this.youtubeStreamService.uploadStream(stream);
-            // console.info("Stream uploaded.");
         }
 
-        getSongTitles() {
-            console.info("Getting song titles.");
-            const songTitles = [];
+        async getStreamFromPlanId(planId) {
+            const planData = await this.planningCenterService.fetchPlan(planId);
+            console.debug("Plan data:", planData);
 
-            const orderOfServiceTable = document.querySelector(`div[data-rbd-droppable-id="orderOfServiceTable"]`);
-            if (!orderOfServiceTable) {
-                console.error("Could not find order of service table.");
-                return;
+            const notes = await this.planningCenterService.fetchNotes(planId);
+            console.debug("Notes:", notes);
+
+            const description = await this.getDescription(planId);
+            console.debug("Description:", description);
+
+            const title = this.getTitle(planData, notes);
+            console.debug("Title:", title);
+
+            const date = this.getDate(planData);
+
+            return new YouTubeStream()
+                .setTitle(title)
+                .setDescription(description)
+                .setStartTime(date);
+        }
+
+        getTitle(planData, notes) {
+            const date = this.getFormattedDate(planData);
+            console.debug("Date:", date);
+
+            const preacher = this.getPreacher(notes);
+            console.debug("Preacher:", preacher);
+
+            const theme = this.getTheme(notes);
+            console.debug("Theme:", theme);
+
+            return `${theme} - ${preacher} | ${date}`;
+        }
+
+        getFormattedDate(planData) {
+            const rawDate = new Date(planData.data.attributes.sort_date);
+            return DateFormatter.format(rawDate);
+        }
+
+        getDate(planData) {
+            const now = new Date();
+
+            const plannedDate = new Date(planData.data.attributes.sort_date);
+            if (plannedDate < now) {
+                plannedDate = now;
+                plannedDate.setMinutes(now.getMinutes() + 5);
             }
 
-            orderOfServiceTable.querySelectorAll("p").forEach((paragraph) => {
-                const title = this.getSongTitleFromParagraph(paragraph);
-                if (title) {
-                    songTitles.push(title);
-                }
+            return plannedDate;
+        }
+
+        async getDescription(planId) {
+            const songs = await this.planningCenterService.fetchSongs(planId);
+            console.debug("Songs:", songs);
+
+            const songLines = songs.map((song) => {
+                const title = song.data.attributes.title;
+                const author = song.data.attributes.author;
+                return `${title} - ${author}`;
             });
 
-            return songTitles;
+            return StreamManager.DESCRIPTION_TEMPLATE.replace("{SONGS}", songLines.join("\n"));
         }
 
-        getSongTitleFromParagraph(paragraph) {
-            const div = paragraph.closest("div");
-            const span = div ? div.querySelector("span") : null;
-            return span ? paragraph.textContent : null;
+        getPreacher(notes) {
+            return notes.data.filter((note) => note.attributes.category_name === StreamManager.PREACHER_NOTE_CATEGORY)[0].attributes.content;
+        }
+
+        getTheme(notes) {
+            return notes.data.filter((note) => note.attributes.category_name === StreamManager.THEME_NOTE_CATEGORY)[0].attributes.content;
+        }
+
+        async createStream(stream) {
+            console.info("Creating stream.", stream);
+            // await this.youtubeStreamService.uploadStream(stream);
+            // console.info("Stream uploaded.");
         }
     }
 
@@ -762,9 +991,11 @@
         const apiService = new YouTubeApiService(authService);
         const youtubeStreamService = new YouTubeStreamService(apiService);
         const domService = new DomService(youtubeStreamService);
+        const planningCenterService = new PlanningCenterService();
+        const streamManager = new StreamManager(youtubeStreamService, planningCenterService, domService);
 
         await authService.init();
 
-        domService.init();
+        streamManager.init();
     })();
 })();
