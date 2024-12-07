@@ -4,11 +4,12 @@
 // @version      2024-11-23
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
-// @match        https://services.planningcenteronline.com/plans/*
+// @match        https://services.planningcenteronline.com/*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
+// @grant        window.onurlchange
 // ==/UserScript==
 
 // You must give your browser access to show Popups/Redirects and Google Sign-In popups on the PlanningCenter page.
@@ -591,12 +592,12 @@
         serialize() {
             return {
                 snippet: {
-                    title: stream.getTitle(),
-                    description: stream.getDescription(),
-                    scheduledStartTime: stream.getStartTime().toISOString(),
+                    title: this.getTitle(),
+                    description: this.getDescription(),
+                    scheduledStartTime: this.getStartTime().toISOString(),
                 },
                 status: {
-                    privacyStatus: stream.getVisibility(),
+                    privacyStatus: this.getVisibility(),
                 },
             }
         }
@@ -781,10 +782,10 @@
         /**
          * Creates a button that allows the user to create a stream.
          */
-        createStreamButton() {
+        async createStreamButton() {
             console.debug("Creating stream button.");
 
-            const originalButton = document.querySelector(DomService.ORIGINAL_BUTTON_SELECTOR);
+            const originalButton = await this.queryElement(DomService.ORIGINAL_BUTTON_SELECTOR);
 
             const youtubeButton = originalButton.cloneNode(true);
             youtubeButton.setAttribute("aria-label", "New Stream");
@@ -800,8 +801,7 @@
          * @returns {number}
          */
         getPlanId() {
-            const url = new URL(window.location.href);
-            const rawId = url.pathname.split("/").pop();
+            const rawId = window.location.pathname.split("/").pop();
             return Number(rawId);
         }
 
@@ -811,6 +811,29 @@
          */
         confirmStreamCreation(stream) {
             return confirm(`Do you want to create a stream titled "${stream.getTitle()}"?`);
+        }
+
+        queryElement(selector) {
+            return new Promise((resolve) => {
+                const element = document.querySelector(selector);
+                if (element) {
+                    resolve(element);
+                    return;
+                }
+
+                const observer = new MutationObserver(() => {
+                    const newElement = document.querySelector(selector);
+                    if (newElement) {
+                        observer.disconnect();
+                        resolve(newElement);
+                    }
+                });
+
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                });
+            });
         }
     }
 
@@ -880,11 +903,11 @@
         /**
          * Initializes the stream manager.
          */
-        init() {
+        async init() {
             console.info("Initializing stream manager.");
 
             const planId = this.domService.getPlanId();
-            const streamButton = this.domService.createStreamButton();
+            const streamButton = await this.domService.createStreamButton();
 
             streamButton.addEventListener("click", () => this.onStreamButtonClick(planId));
         }
@@ -899,9 +922,10 @@
             const stream = await this.getStreamFromPlanId(planId);
 
             const confirmed = this.domService.confirmStreamCreation(stream);
-            if (!confirmed) {
-                console.info("Stream creation cancelled.");
-                return;
+            if (confirmed) {
+                await this.createStream(stream);
+            } else {
+                alert("Stream creation cancelled.");
             }
         }
 
@@ -940,18 +964,29 @@
         }
 
         getFormattedDate(planData) {
-            const rawDate = new Date(planData.data.attributes.sort_date);
+            const rawDate = this.getDate(planData);
             return DateFormatter.format(rawDate);
         }
 
         getDate(planData) {
             const now = new Date();
 
-            const plannedDate = new Date(planData.data.attributes.sort_date);
+            console.debug("Date attributes:", planData.data.attributes);
+
+            // PlanningCenter stores dates in UTC, so we need to convert it to local time to match the date & time with the UI.
+            const utcDate = new Date(planData.data.attributes.sort_date);
+
+            // The timezone offset is in minutes, so we need to convert it to milliseconds.
+            const localOffsetMs = utcDate.getTimezoneOffset() * 60 * 1000;
+            let plannedDate = new Date(utcDate.getTime() + localOffsetMs);
+
+            // If the planned date is in the past, we need to schedule the stream for the future.
             if (plannedDate < now) {
-                plannedDate = now;
-                plannedDate.setMinutes(now.getMinutes() + 5);
+                // add 5 minutes to the current time to prevent scheduling a stream in the past.
+                plannedDate = new Date(now.getTime() + 5 * 60 * 1000);
             }
+
+            console.debug(`Planned date: ${plannedDate.toISOString()}`);
 
             return plannedDate;
         }
@@ -979,12 +1014,14 @@
 
         async createStream(stream) {
             console.info("Creating stream.", stream);
-            // await this.youtubeStreamService.uploadStream(stream);
-            // console.info("Stream uploaded.");
+            await this.youtubeStreamService.uploadStream(stream);
+            console.info("Stream uploaded.");
         }
     }
 
-    (async () => {
+    async function runScript() {
+        console.info("Running userscript!");
+
         const tokenService = new TokenService();
         const clientIdService = new ClientIdService();
         const authService = new AuthService(tokenService, clientIdService);
@@ -995,7 +1032,17 @@
         const streamManager = new StreamManager(youtubeStreamService, planningCenterService, domService);
 
         await authService.init();
+        await streamManager.init();
+    }
 
-        streamManager.init();
-    })();
+    const matchScript = () => {
+        const expectedPrefix = "/plans/";
+        if (window.location.pathname.startsWith(expectedPrefix)) {
+            runScript();
+        }
+    };
+
+    window.addEventListener("urlchange", matchScript);
+
+    matchScript();
 })();
