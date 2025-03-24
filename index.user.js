@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      2025-03-25
+// @version      2025-03-26
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -15,6 +15,7 @@
 // ==/UserScript==
 
 // You must give your browser access to show Popups/Redirects and Google Sign-In popups on the PlanningCenter page.
+// TODO: Allow a user to automatically add each stream to a certain configurable playlist.
 
 (() => {
     "use strict";
