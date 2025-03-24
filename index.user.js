@@ -1025,6 +1025,25 @@
      * Used to detect URL changes in Single Page Applications
      */
     class URLWatcher {
+        /**
+         * The function to call when a URL change is detected.
+         * @type {Function} the function to call
+         */
+        callback;
+
+        /**
+         * The last URL before a change in URL was detected.
+         * Used to compare against the current URL.
+         * @type {string} the last known URL of the window
+         */
+        lastUrl;
+
+        /**
+         * Used to check for changes in the URL.
+         * @type {MutationObserver} used to detect changes in the DOM
+         */
+        observer;
+
         static OBSERVER_CONFIG = {
             subtree: true,
             childList: true,
@@ -1035,9 +1054,6 @@
             this.lastUrl = location.href;
         }
 
-        /**
-         * Initializes and starts the URL watcher
-         */
         init() {
             this.observer = new MutationObserver(() => this.checkUrlChange());
             this.observer.observe(document, URLWatcher.OBSERVER_CONFIG);
