@@ -14,9 +14,6 @@
 // @updateURL https://update.greasyfork.org/scripts/530729/PlanningCenter%20YouTube%20Integration.meta.js
 // ==/UserScript==
 
-// You must give your browser access to show Popups/Redirects and Google Sign-In popups on the PlanningCenter page.
-// TODO: Allow a user to automatically add each stream to a certain configurable playlist.
-
 (() => {
     "use strict";
 

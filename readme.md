@@ -2,6 +2,10 @@
 
 I wrote this script for our tech team at church, so they can easily create a YouTube stream from a service in PlanningCenter.
 
+## TODOs:
+- Allow a user to automatically add each stream to a certain configurable playlist.
+- Prevent invalid YouTube stream titles (e.g. newlines)
+- Allow the user to modify the (filtered) stream title before stream creation (filter it again after).
 
 ## Usage
 
@@ -35,6 +39,9 @@ I recommend that you use [Violentmonkey](https://violentmonkey.github.io/get-it/
 2. Copy the `Client ID` value from the OAuth 2.0 credentials from Google Cloud.
 3. Press the "New Stream" button.
 4. Paste your copied `Client ID` when asked.
+5. Make sure to allow any popups/redirects on PlanningCenter since this is required for the Google OAuth popups - some browsers might block these.
+6. Follow the Google sign-in prompts - login with your YouTube channel account.
+7. Done
 
 <details>
 
