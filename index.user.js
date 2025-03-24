@@ -585,7 +585,7 @@
         constructor() {
             this.title = "";
             this.startTime = new Date();
-            this.visibility = StreamVisibility.PRIVATE; // TODO: Change this to public by default
+            this.visibility = StreamVisibility.PUBLIC;
         }
 
         /**
