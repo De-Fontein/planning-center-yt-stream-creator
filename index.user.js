@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      2024-11-23
+// @version      2025-03-24
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -9,7 +9,9 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
-// @grant        window.onurlchange
+// @license      MIT
+// @downloadURL https://update.greasyfork.org/scripts/530729/PlanningCenter%20YouTube%20Integration.user.js
+// @updateURL https://update.greasyfork.org/scripts/530729/PlanningCenter%20YouTube%20Integration.meta.js
 // ==/UserScript==
 
 // You must give your browser access to show Popups/Redirects and Google Sign-In popups on the PlanningCenter page.
@@ -1019,6 +1021,60 @@
         }
     }
 
+    /**
+     * Used to detect URL changes in Single Page Applications
+     */
+    class URLWatcher {
+        static OBSERVER_CONFIG = {
+            subtree: true,
+            childList: true,
+        };
+
+        constructor(callback) {
+            this.callback = callback;
+            this.lastUrl = location.href;
+        }
+
+        init() {
+            this.observer = new MutationObserver(() => this.checkUrlChange());
+            this.observer.observe(document, URLWatcher.OBSERVER_CONFIG);
+
+            this.hookHistoryMethod("pushState");
+            this.hookHistoryMethod("replaceState");
+
+            this.onUrlChange = () => this.checkUrlChange();
+            window.addEventListener("popstate", this.onUrlChange);
+            window.addEventListener("urlChange", this.onUrlChange);
+        }
+
+        checkUrlChange() {
+            if (location.href !== this.lastUrl) {
+                this.lastUrl = location.href;
+                this.callback();
+            }
+        }
+
+        hookHistoryMethod(method) {
+            const original = history[method];
+            history[method] = (...args) => {
+                original.apply(history, args);
+                window.dispatchEvent(new Event("urlChange"));
+            };
+        }
+
+        disconnect() {
+            this.disconnectObserver();
+            window.removeEventListener("popstate", this.onUrlChange);
+            window.removeEventListener("urlChange", this.onUrlChange);
+        }
+
+        disconnectObserver() {
+            if (this.observer) {
+                this.observer.disconnect();
+            }
+        }
+    }
+
     async function runScript() {
         console.info("Running userscript!");
 
@@ -1042,7 +1098,8 @@
         }
     };
 
-    window.addEventListener("urlchange", matchScript);
+    const watcher = new URLWatcher(matchScript);
+    watcher.init();
 
     matchScript();
 })();
