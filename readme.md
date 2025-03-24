@@ -42,7 +42,7 @@ We use notes in our services called `Spreker` and `Thema`.
 
 The `Spreker` (Preacher) note is used to set the name of the preacher in the livestream title.
 
-The `Thema` (Theme) note is used to set as the prefix of the stream title.
+The `Thema` (Theme) note is used as the prefix of the stream title.
 
 The date is added as a suffix to the theme and preacher name.
 
