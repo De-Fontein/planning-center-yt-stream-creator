@@ -1035,6 +1035,9 @@
             this.lastUrl = location.href;
         }
 
+        /**
+         * Initializes and starts the URL watcher
+         */
         init() {
             this.observer = new MutationObserver(() => this.checkUrlChange());
             this.observer.observe(document, URLWatcher.OBSERVER_CONFIG);
