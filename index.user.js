@@ -10,8 +10,8 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @license      MIT
-// @downloadURL  https://github.com/Auxority/planningcenter-yt-stream-creator/raw/refs/heads/main/index.user.js
-// @updateURL    https://github.com/Auxority/planningcenter-yt-stream-creator/raw/refs/heads/main/index.user.js
+// @downloadURL https://github.com/Auxority/planningcenter-yt-stream-creator/raw/refs/heads/main/index.user.js
+// @updateURL https://github.com/Auxority/planningcenter-yt-stream-creator/raw/refs/heads/main/index.user.js
 // ==/UserScript==
 
 (() => {
