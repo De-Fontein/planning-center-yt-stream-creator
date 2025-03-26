@@ -1047,48 +1047,49 @@
             childList: true,
         };
 
+        static INTERVAL_DELAY_IN_MS = 500;
+
         constructor(callback) {
             this.callback = callback;
             this.lastUrl = location.href;
         }
 
         init() {
-            this.observer = new MutationObserver(() => this.checkUrlChange());
-            this.observer.observe(document, URLWatcher.OBSERVER_CONFIG);
-
-            this.hookHistoryMethod("pushState");
-            this.hookHistoryMethod("replaceState");
-
-            this.onUrlChange = () => this.checkUrlChange();
-            window.addEventListener("popstate", this.onUrlChange);
-            window.addEventListener("urlChange", this.onUrlChange);
-        }
-
-        checkUrlChange() {
-            if (location.href !== this.lastUrl) {
-                this.lastUrl = location.href;
-                this.callback();
+            if (this.hasNavigationAPI()) {
+                this.addNavigationListener();
+            } else {
+                this.addIntervalListener();
             }
         }
 
-        hookHistoryMethod(method) {
-            const original = history[method];
-            history[method] = (...args) => {
-                original.apply(history, args);
-                window.dispatchEvent(new Event("urlChange"));
-            };
+        addNavigationListener() {
+            navigation.addEventListener("navigate", () => this.update())
         }
 
-        disconnect() {
-            this.disconnectObserver();
-            window.removeEventListener("popstate", this.onUrlChange);
-            window.removeEventListener("urlChange", this.onUrlChange);
+        addIntervalListener() {
+            setInterval(() => this.update(), URLWatcher.INTERVAL_DELAY_IN_MS);
         }
 
-        disconnectObserver() {
-            if (this.observer) {
-                this.observer.disconnect();
+        update() {
+            if (!this.hasURLChanged) {
+                return;
             }
+
+            this.onURLChange();
+        }
+
+        onURLChange() {
+            console.debug(`URL changed from ${this.lastUrl} to ${location.href}`);
+            this.lastUrl = location.href;
+            this.callback();
+        }
+
+        hasNavigationAPI() {
+            return window.navigation && window.navigation.addEventListener;
+        }
+
+        hasURLChanged() {
+            return location.href !== this.lastUrl;
         }
     }
 
@@ -1108,15 +1109,15 @@
         await streamManager.init();
     }
 
-    const matchScript = () => {
+    const main = () => {
         const expectedPrefix = "/plans/";
         if (window.location.pathname.startsWith(expectedPrefix)) {
             runScript();
         }
     };
 
-    const watcher = new URLWatcher(matchScript);
+    const watcher = new URLWatcher(main);
     watcher.init();
 
-    matchScript();
+    main();
 })();
