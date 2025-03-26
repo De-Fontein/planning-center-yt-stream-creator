@@ -3,6 +3,7 @@
 I wrote this script for our tech team at church, so they can easily create a YouTube stream from a service in PlanningCenter.
 
 ## TODOs:
+- TODO: Fix page switch detection
 - Allow a user to automatically add each stream to a certain configurable playlist.
 - Prevent invalid YouTube stream titles (e.g. newlines)
 - Allow the user to modify the (filtered) stream title before stream creation (filter it again after).

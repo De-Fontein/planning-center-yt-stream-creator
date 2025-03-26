@@ -776,6 +776,7 @@
      */
     class DomService {
         static ORIGINAL_BUTTON_SELECTOR = `button[aria-label="Share"]`;
+        static STREAM_BUTTON_ID = "yt-stream-button";
 
         constructor() { }
 
@@ -783,13 +784,21 @@
          * Creates a button that allows the user to create a stream.
          */
         async createStreamButton() {
-            console.debug("Creating stream button.");
+            console.debug("Looking for original button to clone...");
 
             const originalButton = await this.queryElement(DomService.ORIGINAL_BUTTON_SELECTOR);
 
+            if (document.querySelector(`#${DomService.STREAM_BUTTON_ID}`)) {
+                console.debug("Stream button already exists!");
+                return;
+            }
+
+            console.debug("Creating stream button.");
+
             const youtubeButton = originalButton.cloneNode(true);
-            youtubeButton.setAttribute("aria-label", "New Stream");
+            youtubeButton.id = DomService.STREAM_BUTTON_ID;
             youtubeButton.innerText = "New Stream";
+            youtubeButton.setAttribute("aria-label", "New Stream");
 
             originalButton.parentNode.prepend(youtubeButton);
 
@@ -909,7 +918,7 @@
             const planId = this.domService.getPlanId();
             const streamButton = await this.domService.createStreamButton();
 
-            streamButton.addEventListener("click", () => this.onStreamButtonClick(planId));
+            streamButton?.addEventListener("click", () => this.onStreamButtonClick(planId));
         }
 
         /**
