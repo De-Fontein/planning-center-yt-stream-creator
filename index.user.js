@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      1.0.0
+// @version      v1.0.0
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -10,8 +10,8 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @license      MIT
-// @downloadURL  https://github.com/Auxority/planningcenter-yt-stream-creator/raw/refs/heads/main/index.user.js
-// @updateURL    https://github.com/Auxority/planningcenter-yt-stream-creator/raw/refs/heads/main/index.user.js
+// @downloadURL https://update.greasyfork.org/scripts/530729/PlanningCenter%20YouTube%20Integration.user.js
+// @updateURL https://update.greasyfork.org/scripts/530729/PlanningCenter%20YouTube%20Integration.meta.js
 // ==/UserScript==
 
 (() => {
