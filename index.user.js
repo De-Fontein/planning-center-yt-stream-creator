@@ -1028,6 +1028,14 @@
         }
     }
 
+    class PageService {
+        constructor() {}
+
+        static isPlansPage() {
+
+        }
+    }
+
     /**
      * Used to detect URL changes in Single Page Applications
      */
@@ -1051,6 +1059,8 @@
          */
         observer;
 
+        static INTERVAL_DELAY_IN_MS = 500;
+
         static OBSERVER_CONFIG = {
             subtree: true,
             childList: true,
@@ -1062,22 +1072,7 @@
         }
 
         init() {
-            this.observer = new MutationObserver(() => this.checkUrlChange());
-            this.observer.observe(document, URLWatcher.OBSERVER_CONFIG);
-
-            this.hookHistoryMethod("pushState");
-            this.hookHistoryMethod("replaceState");
-
-            this.onUrlChange = () => this.checkUrlChange();
-            window.addEventListener("popstate", this.onUrlChange);
-            window.addEventListener("urlChange", this.onUrlChange);
-        }
-
-        checkUrlChange() {
-            if (location.href !== this.lastUrl) {
-                this.lastUrl = location.href;
-                this.callback();
-            }
+            setInterval(() => this.callback(), URLWatcher.INTERVAL_DELAY_IN_MS);
         }
 
         hookHistoryMethod(method) {
@@ -1101,31 +1096,46 @@
         }
     }
 
-    async function runScript() {
-        console.info("Running userscript!");
+    class App {
+        authService;
+        streamManager;
+        watcher;
 
-        const tokenService = new TokenService();
-        const clientIdService = new ClientIdService();
-        const authService = new AuthService(tokenService, clientIdService);
-        const apiService = new YouTubeApiService(authService);
-        const youtubeStreamService = new YouTubeStreamService(apiService);
-        const domService = new DomService(youtubeStreamService);
-        const planningCenterService = new PlanningCenterService();
-        const streamManager = new StreamManager(youtubeStreamService, planningCenterService, domService);
+        static PLANS_PAGE_PREFIX = "/plans/";
 
-        await authService.init();
-        await streamManager.init();
+        constructor() {
+            const tokenService = new TokenService();
+            const clientIdService = new ClientIdService();
+            this.authService = new AuthService(tokenService, clientIdService);
+            const apiService = new YouTubeApiService(this.authService);
+            const youtubeStreamService = new YouTubeStreamService(apiService);
+            const domService = new DomService(youtubeStreamService);
+            const planningCenterService = new PlanningCenterService();
+            this.streamManager = new StreamManager(youtubeStreamService, planningCenterService, domService);
+
+            this.watcher = new URLWatcher(() => this.update());
+        }
+
+        async init() {
+            await this.authService.init();
+            this.watcher.init();
+        }
+
+        async run() {
+            await this.streamManager.init();
+        }
+
+        update() {
+            if (this.isOnPlansPage()) {
+                this.run();
+            }
+        }
+
+        isOnPlansPage() {
+            return window.location.pathname.startsWith(App.PLANS_PAGE_PREFIX);
+        }
     }
 
-    const matchScript = () => {
-        const expectedPrefix = "/plans/";
-        if (window.location.pathname.startsWith(expectedPrefix)) {
-            runScript();
-        }
-    };
-
-    const watcher = new URLWatcher(matchScript);
-    watcher.init();
-
-    matchScript();
+    const app = new App();
+    app.init();
 })();
