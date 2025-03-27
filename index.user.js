@@ -782,13 +782,14 @@
 
         /**
          * Creates a button that allows the user to create a stream.
+         * @returns {Promise<HTMLButtonElement>}
          */
         async createStreamButton() {
             console.debug("Looking for original button to clone...");
 
             const originalButton = await this.queryElement(DomService.ORIGINAL_BUTTON_SELECTOR);
 
-            if (document.querySelector(`#${DomService.STREAM_BUTTON_ID}`)) {
+            if (this.streamButtonExists()) {
                 console.debug("Stream button already exists!");
                 return;
             }
@@ -803,6 +804,22 @@
             originalButton.parentNode.prepend(youtubeButton);
 
             return youtubeButton;
+        }
+
+        /**
+         * Checks whether the current page is a service plan page.
+         * @returns {boolean}
+         */
+        isPlanPage() {
+            return window.location.pathname.startsWith(App.PLANS_PAGE_PREFIX);
+        }
+
+        /**
+         * Checks whether the stream button already exists on the page
+         * @returns {boolean}
+         */
+        streamButtonExists() {
+            return document.querySelector(`#${DomService.STREAM_BUTTON_ID}`) !== null;
         }
 
         /**
@@ -1028,14 +1045,6 @@
         }
     }
 
-    class PageService {
-        constructor() {}
-
-        static isPlansPage() {
-
-        }
-    }
-
     /**
      * Used to detect URL changes in Single Page Applications
      */
@@ -1109,30 +1118,42 @@
             this.authService = new AuthService(tokenService, clientIdService);
             const apiService = new YouTubeApiService(this.authService);
             const youtubeStreamService = new YouTubeStreamService(apiService);
-            const domService = new DomService(youtubeStreamService);
+            this.domService = new DomService(youtubeStreamService);
             const planningCenterService = new PlanningCenterService();
-            this.streamManager = new StreamManager(youtubeStreamService, planningCenterService, domService);
-
+            this.streamManager = new StreamManager(youtubeStreamService, planningCenterService, this.domService);
             this.watcher = new URLWatcher(() => this.update());
         }
 
+        /**
+         * Creates a new instance of the application.
+         */
         async init() {
             await this.authService.init();
             this.watcher.init();
         }
 
+        /**
+         * Runs the application.
+         */
         async run() {
             await this.streamManager.init();
         }
 
+        /**
+         * Checks whether the application should run and runs it if it should.
+         */
         update() {
-            if (this.isOnPlansPage()) {
+            if (this.shouldRun()) {
                 this.run();
             }
         }
 
-        isOnPlansPage() {
-            return window.location.pathname.startsWith(App.PLANS_PAGE_PREFIX);
+        /**
+         * Checks whether the application should run.
+         * @returns {boolean}
+         */
+        shouldRun() {
+            return this.domService.isPlanPage() && !this.domService.streamButtonExists();
         }
     }
 
