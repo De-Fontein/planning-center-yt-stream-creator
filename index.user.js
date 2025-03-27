@@ -221,7 +221,7 @@
          * @returns {Promise<AuthToken>}
          */
         fetchAuthToken() {
-            console.info("Fetching auth token.");
+            console.debug("Fetching auth token.");
             return new Promise((resolve, reject) => {
                 const googleClient = this.getGoogleClient(resolve, reject);
                 googleClient.requestAccessToken();
@@ -240,7 +240,7 @@
         processTokenResponse(data, resolve, reject) {
             try {
                 const loginResponse = AuthToken.deserialize(data);
-                console.info("Login response:", loginResponse);
+                console.debug("Login response:", loginResponse);
                 resolve(loginResponse);
             } catch (e) {
                 reject(`Could not deserialize response: ${e}`);
@@ -273,12 +273,12 @@
         }
 
         isUserAuthenticated() {
-            console.info("Checking if user is authenticated.");
+            console.debug("Checking if user is authenticated.");
             return this.getAccessToken() && !this.hasTokenExpired();
         }
 
         reset() {
-            console.info("Resetting token service.");
+            console.debug("Resetting token service.");
             SettingsStorage.delete(this.ACCESS_TOKEN_KEY);
             SettingsStorage.delete(this.EXPIRATION_TIMESTAMP_KEY);
         }
@@ -306,7 +306,7 @@
          * @returns {string} The OAuth client ID.
          */
         fetchClientId() {
-            console.info("Fetching OAuth client ID.");
+            console.debug("Fetching OAuth client ID.");
             const clientId = SettingsStorage.load(this.CLIENT_ID_KEY);
             if (!clientId) {
                 return this.showClientIdPrompt();
@@ -483,7 +483,7 @@
             const url = this.buildUrl(endpoint);
             options.headers = options.headers || new Headers();
             options.headers.set(this.AUTHORIZATION_HEADER_KEY, this.getBearerToken());
-            console.info(`Executing request to ${url}`);
+            console.debug(`Executing request to ${url}`);
 
             try {
                 const res = await fetch(url, options);
@@ -665,7 +665,7 @@
          * Just a dummy API request to test the API connection and authentication.
          */
         async dummyApiRequest() {
-            console.info("Making dummy API request.");
+            console.debug("Making dummy API request.");
             return await this.apiService.executeRequest(this.DUMMY_ENDPOINT);
         }
 
@@ -674,7 +674,7 @@
          * @param {YouTubeStream} stream
          */
         async uploadStream(stream) {
-            console.log("Uploading stream to YouTube.");
+            console.info("Uploading stream to YouTube.");
 
             const headers = this.apiService.getRequestHeaders();
             headers.set("Content-Type", "application/json");
@@ -913,7 +913,7 @@
          * Initializes the stream manager.
          */
         async init() {
-            console.info("Initializing stream manager.");
+            console.debug("Initializing stream manager.");
 
             const planId = this.domService.getPlanId();
             const streamButton = await this.domService.createStreamButton();
@@ -926,7 +926,7 @@
          * @param {number} planId - The ID of the plan to create a stream for.
          */
         async onStreamButtonClick(planId) {
-            console.info("Stream button clicked.");
+            console.debug("Stream button clicked.");
 
             const stream = await this.getStreamFromPlanId(planId);
 
