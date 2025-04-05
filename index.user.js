@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      1.0.1
+// @version      1.0.2
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -703,7 +703,7 @@
             const url = this.buildPlanUrl(id);
 
             try {
-                return await this.fetchJsonData(url);
+                return await this.fetchJson(url);
             } catch (error) {
                 throw new Error(`Failed to fetch plan: ${error}`);
             }
@@ -718,7 +718,7 @@
             const url = `${this.buildPlanUrl(planId)}/notes`;
 
             try {
-                return await this.fetchJsonData(url);
+                return await this.fetchJson(url);
             } catch (error) {
                 throw new Error(`Failed to fetch notes: ${error}`);
             }
@@ -731,7 +731,7 @@
          */
         async fetchSongs(planId) {
             const items = await this.fetchItems(planId);
-            const songIds = items.data.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
+            const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
 
             try {
                 const promises = songIds.map((songId) => this.fetchSong(songId));
@@ -745,7 +745,7 @@
             const url = `${PlanningCenterService.API_BASE_URL}/songs/${songId}`;
 
             try {
-                return await this.fetchJsonData(url);
+                return await this.fetchJson(url);
             } catch (error) {
                 throw new Error(`Failed to fetch song: ${error}`);
             }
@@ -755,13 +755,30 @@
             const url = `${this.buildPlanUrl(planId)}/items`;
 
             try {
-                return await this.fetchJsonData(url);
+                return await this.fetchAllJsonData(url);
             } catch (error) {
                 throw new Error(`Failed to fetch items: ${error}`);
             }
         }
 
-        async fetchJsonData(url) {
+        async fetchAllJsonData(url) {
+          const allData = [];
+          let nextUrl = url;
+
+          while (nextUrl) {
+            const json = await this.fetchJson(nextUrl);
+            const data = json.data;
+            if (data) {
+              allData.push(...data);
+            }
+
+            nextUrl = json.links?.next;
+          }
+
+          return allData;
+        }
+
+        async fetchJson(url) {
             const res = await fetch(url, { credentials: "include" });
             return await res.json();
         }
