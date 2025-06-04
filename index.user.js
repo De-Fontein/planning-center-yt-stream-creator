@@ -972,6 +972,10 @@ class DateFormatter {
 class StreamManager {
   // TODO: Make all of these static constants configurable.
   static PLAYLIST_ID = "PL-sPk2tbAU2OVb91U_ij-3uHkSjJR2N--";
+  static PLAYLIST_ID_STANDARD = "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp";
+  static PLAYLIST_ID_ALL_PREACHERS = "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf";
+  static PLAYLIST_ID_CURR_SEASON = "PL-sPk2tbAU2Pii7Tc6fPwUGboZIpP3MYj";
+  static ALL_PLAYLIST_IDS = [this.PLAYLIST_ID, this.PLAYLIST_ID_STANDARD, this.PLAYLIST_ID_ALL_PREACHERS, this.PLAYLIST_ID_CURR_SEASON];
   static PREACHER_NOTE_CATEGORY = "Spreker";
   static THEME_NOTE_CATEGORY = "Thema";
   static DESCRIPTION_TEMPLATE = [
@@ -1041,11 +1045,13 @@ class StreamManager {
 
       console.info("Adding livestream to playlist");
 
-      const playlistItem = new PlaylistItem();
-      playlistItem.setId(StreamManager.PLAYLIST_ID);
-      playlistItem.setVideoId(videoId);
-
-      await this.addToPlaylist(playlistItem);
+      StreamManager.ALL_PLAYLIST_IDS.forEach(async function (id) {
+        const playlistItem = new PlaylistItem();
+        playlistItem.setId(id);
+        playlistItem.setVideoId(videoId);
+  
+        await this.addToPlaylist(playlistItem);
+      });
 
       alert("Stream created!");
     } else {
