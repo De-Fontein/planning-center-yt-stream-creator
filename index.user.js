@@ -716,22 +716,99 @@ class YouTubeAPIService {
 
   /**
    * Adds a stream to a playlist using its video id.
-   * @param {PlaylistItem} playlistItem item to add to the playlist
+   * @param {string[]} allPlaylistIDs ids of the playlists the video should be added to
+   * @param {string} videoId video id, which should be added to the playlists
    */
-  async addToPlaylist(playlistItem) {
-    console.info("Adding stream to playlist");
+  async batchAddToPlaylists(videoId, allPlaylistItems) {
+    console.info("Batch-Adding stream to multiple playlists in one HTTP call");
+
+    const BOUNDARY = "BatchBoundary_kdf"; // kdf = kerk de fontein
 
     const headers = this.apiService.getRequestHeaders();
-    headers.set("Content-Type", "application/json");
+    headers.set("Content-Type", `multipart/mixed; boundary=${BOUNDARY}`);
 
-    const requestData = playlistItem.serialize();
+    let multipartBody = "";
+    allPlaylistItems.forEach(playlistId => {
+      const snipperPayload = {
+        snippet: {
+          playlistId: playlistId,
+          resourceId: {
+            kind: "youtube#video",
+            videoId: videoId,
+          },
+        },
+      };
+      const jsonString = JSON.stringify(snipperPayload);
 
-    const json = await this.apiService.executeRequest(this.ADD_TO_PLAYLIST_ENDPOINT, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(requestData),
+      multipartBody += `--${BOUNDARY}\r\n`;
+      multipartBody += `Content-Type: application/http\r\n`;
+      multipartBody += `Content-Transfer-Encoding: binary\r\n\r\n`;
+
+      multipartBody +=
+        `POST /youtube/v3${this.ADD_TO_PLAYLIST_ENDPOINT} HTTP/1.1\r\n` +
+        `Content-Type: application/json; charset=UTF-8\r\n` +
+        `Authorization: ${this.apiService.getBearerToken()}\r\n\r\n`;
+
+      multipartBody += jsonString += `\r\n`;
     });
-    console.log(json);
+
+    multipartBody += `--${BOUNDARY}--`;
+
+    const response = await fetch("https://www.googleapis.com/batch/youtube/v3",
+      {
+        method: "POST",
+        headers: headers,
+        body: multipartBody,
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("Batch request failed:", response.status, text);
+      throw new Error(`Youtube batch failed: ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get("Content-Type") || "";
+    const responseText = await response.text();
+    const match = contentType.match(/boundary=(.+)$/i);
+    const responseBoundary = match ? match[1] : null;
+
+    if (!responseBoundary) {
+      console.warn("Couldn't find response boundary in Content-Type", contentType);
+      console.log("Raw batch response:\n", responseText);
+      return;
+    }
+
+    const parts = responseText.split(`--${responseBoundary}`);
+    parts.forEach((part, i) => {
+      part = part.trim();
+      if (part === "" || part === "--") return;
+
+      const subLines = part.split("\r\n");
+      const statusLine = subLines[0];
+      const statusMatch = statusLine.match(/HTTP\/\d\.\d (\d{3}) (.+)/);
+      let code = null,
+        statusText = "";
+      if (statusMatch) {
+        code = parseInt(statusMatch[1], 10);
+        statusText = statusMatch[2];
+      }
+      const blankLineIndex = subLines.indexOf("");
+      const jsonPayload = subLines
+        .slice(blankLineIndex + 1)
+        .join("\r\n")
+        .trim();
+
+      console.group(
+        `Sub-response #${index + 1} → HTTP ${code} ${statusText}`
+      );
+      try {
+        console.log(JSON.parse(jsonPayload));
+      } catch (e) {
+        console.warn("Couldn't parse JSON of sub-response:", jsonPayload);
+      }
+      console.groupEnd();
+    });
   }
 
   /**
@@ -971,11 +1048,12 @@ class DateFormatter {
  */
 class StreamManager {
   // TODO: Make all of these static constants configurable.
-  static PLAYLIST_ID = "PL-sPk2tbAU2OVb91U_ij-3uHkSjJR2N--";
-  static PLAYLIST_ID_STANDARD = "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp";
-  static PLAYLIST_ID_ALL_PREACHERS = "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf";
-  static PLAYLIST_ID_CURR_SEASON = "PL-sPk2tbAU2Pii7Tc6fPwUGboZIpP3MYj";
-  static ALL_PLAYLIST_IDS = [this.PLAYLIST_ID, this.PLAYLIST_ID_STANDARD, this.PLAYLIST_ID_ALL_PREACHERS, this.PLAYLIST_ID_CURR_SEASON];
+  static ALL_PLAYLIST_IDS = [
+    "PL-sPk2tbAU2OVb91U_ij-3uHkSjJR2N--", // Standard Playlist
+    "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp", // New Standard Playlist
+    "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf", // All Preachers Playlist
+    "PL-sPk2tbAU2Pii7Tc6fPwUGboZIpP3MYj" // Current Season Playlist
+  ];
   static PREACHER_NOTE_CATEGORY = "Spreker";
   static THEME_NOTE_CATEGORY = "Thema";
   static DESCRIPTION_TEMPLATE = [
@@ -1045,13 +1123,7 @@ class StreamManager {
 
       console.info("Adding livestream to playlist");
 
-      StreamManager.ALL_PLAYLIST_IDS.forEach(async function (id) {
-        const playlistItem = new PlaylistItem();
-        playlistItem.setId(id);
-        playlistItem.setVideoId(videoId);
-  
-        await this.addToPlaylist(playlistItem);
-      });
+      await this.youtubeApiService.batchAddToPlaylists(videoId, StreamManager.ALL_PLAYLIST_IDS);
 
       alert("Stream created!");
     } else {
@@ -1152,16 +1224,6 @@ class StreamManager {
     const videoId = await this.youtubeApiService.uploadStream(stream);
     console.info("Stream uploaded.");
     return videoId;
-  }
-
-  /**
-   * Adds a YouTube stream to a playlist using the provided details.
-   * @param {PlaylistItem} playlistItem required details to add a video to a playlist.
-   */
-  async addToPlaylist(playlistItem) {
-    console.info("Adding stream to playlist.");
-    await this.youtubeApiService.addToPlaylist(playlistItem);
-    console.info("Stream added to playlist.");
   }
 }
 
