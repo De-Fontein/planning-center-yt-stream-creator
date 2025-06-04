@@ -971,11 +971,12 @@ class DateFormatter {
  */
 class StreamManager {
   // TODO: Make all of these static constants configurable.
-  static PLAYLIST_ID = "PL-sPk2tbAU2OVb91U_ij-3uHkSjJR2N--";
-  static PLAYLIST_ID_STANDARD = "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp";
-  static PLAYLIST_ID_ALL_PREACHERS = "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf";
-  static PLAYLIST_ID_CURR_SEASON = "PL-sPk2tbAU2Pii7Tc6fPwUGboZIpP3MYj";
-  static ALL_PLAYLIST_IDS = [this.PLAYLIST_ID, this.PLAYLIST_ID_STANDARD, this.PLAYLIST_ID_ALL_PREACHERS, this.PLAYLIST_ID_CURR_SEASON];
+  static ALL_PLAYLIST_IDS = [
+    "PL-sPk2tbAU2OVb91U_ij-3uHkSjJR2N--", // Standard Playlist
+    "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp", // New Standard Playlist
+    "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf", // All Preachers Playlist
+    "PL-sPk2tbAU2Pii7Tc6fPwUGboZIpP3MYj" // Current Season Playlist
+  ];
   static PREACHER_NOTE_CATEGORY = "Spreker";
   static THEME_NOTE_CATEGORY = "Thema";
   static DESCRIPTION_TEMPLATE = [
