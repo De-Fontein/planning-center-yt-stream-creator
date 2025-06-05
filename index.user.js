@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      1.0.3
+// @version      1.0.4
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -661,6 +661,19 @@ class PlaylistItem {
     this.videoId = "";
   }
 
+  /**
+   * Creates a new PlaylistItem from the provided playlist and video IDs.
+   * @param {string} playlistId of a YouTube playlist
+   * @param {string} videoId of a YouTube video
+   * @returns 
+   */
+  static fromIds(playlistId, videoId) {
+    const item = new PlaylistItem();
+    item.setId(playlistId);
+    item.setVideoId(videoId);
+    return item;
+  }
+
   getId() {
     return this.id;
   }
@@ -719,8 +732,6 @@ class YouTubeAPIService {
    * @param {PlaylistItem} playlistItem item to add to the playlist
    */
   async addToPlaylist(playlistItem) {
-    console.info("Adding stream to playlist");
-
     const headers = this.apiService.getRequestHeaders();
     headers.set("Content-Type", "application/json");
 
@@ -731,7 +742,8 @@ class YouTubeAPIService {
       headers: headers,
       body: JSON.stringify(requestData),
     });
-    console.log(json);
+
+    console.debug("Playlist item added:", json);
   }
 
   /**
@@ -740,8 +752,6 @@ class YouTubeAPIService {
    * @returns {Promise<string>} video id of the stream.
    */
   async uploadStream(stream) {
-    console.info("Uploading stream to YouTube.");
-
     const headers = this.apiService.getRequestHeaders();
     headers.set("Content-Type", "application/json");
 
@@ -752,6 +762,8 @@ class YouTubeAPIService {
       headers: headers,
       body: JSON.stringify(requestData),
     });
+
+    console.debug("Stream created:", json);
 
     return json.id;
   }
@@ -1046,18 +1058,26 @@ class StreamManager {
 
       console.info("Adding livestream to playlist");
 
-      StreamManager.ALL_PLAYLIST_IDS.forEach(async function (id) {
-        const playlistItem = new PlaylistItem();
-        playlistItem.setId(id);
-        playlistItem.setVideoId(videoId);
-  
-        await this.addToPlaylist(playlistItem);
-      });
+      const promises = StreamManager.ALL_PLAYLIST_IDS.map(id => this.addToPlaylist(id, videoId));
+      await Promise.all(promises);
 
       alert("Stream created!");
     } else {
       alert("Stream creation cancelled.");
     }
+  }
+
+  /**
+   * Adds a YouTube stream to a playlist using the provided details.
+   * @param {string} id of the playlist
+   * @param {string} videoId of the video to add to the playlist
+   * @returns {Promise<void>}
+   */
+  async addToPlaylist(id, videoId) {
+    console.info("Adding stream to playlist.");
+    const playlistItem = PlaylistItem.fromIds(id, videoId);
+    await this.youtubeApiService.addToPlaylist(playlistItem);
+    console.info("Stream added to playlist.");
   }
 
   async getStreamFromPlanId(planId) {
@@ -1153,16 +1173,6 @@ class StreamManager {
     const videoId = await this.youtubeApiService.uploadStream(stream);
     console.info("Stream uploaded.");
     return videoId;
-  }
-
-  /**
-   * Adds a YouTube stream to a playlist using the provided details.
-   * @param {PlaylistItem} playlistItem required details to add a video to a playlist.
-   */
-  async addToPlaylist(playlistItem) {
-    console.info("Adding stream to playlist.");
-    await this.youtubeApiService.addToPlaylist(playlistItem);
-    console.info("Stream added to playlist.");
   }
 }
 
