@@ -984,10 +984,9 @@ class DateFormatter {
 class StreamManager {
   // TODO: Make all of these static constants configurable.
   static ALL_PLAYLIST_IDS = [
-    "PL-sPk2tbAU2OVb91U_ij-3uHkSjJR2N--", // Standard Playlist
-    "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp", // New Standard Playlist
+    "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp", // Standard Playlist
     "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf", // All Preachers Playlist
-    "PL-sPk2tbAU2Pii7Tc6fPwUGboZIpP3MYj" // Current Season Playlist
+    "PL-sPk2tbAU2Pa6pSNB3YDQJOFoJptZt5k" // Current Season Playlist
   ];
   static PREACHER_NOTE_CATEGORY = "Spreker";
   static THEME_NOTE_CATEGORY = "Thema";
