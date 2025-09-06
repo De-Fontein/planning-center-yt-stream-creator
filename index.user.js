@@ -814,7 +814,20 @@ class PlanningCenterService {
     const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
 
     try {
-      const promises = songIds.map((songId) => this.fetchSong(songId));
+      const promises = songIds.map((songId) =>
+        Promise.allSettled([
+          this.fetchSong(songId),
+          this.fetchSongTags(songId),
+        ]).then(([fetchedSong, fetchedTags]) => {
+          if (fetchedSong.status !== "fulfilled") throw fetchedSong.reason;
+
+          const song = fetchedSong.value;
+          const tag = (fetchedTags.status === "fulfilled") ? fetchedTags.value.data[0].attributes.name : "";
+
+          return { ...song, tag };
+        })
+      );
+
       return await Promise.all(promises);
     } catch (error) {
       throw new Error(`Failed to fetch songs: ${error}`);
@@ -828,6 +841,18 @@ class PlanningCenterService {
       return await this.fetchJson(url);
     } catch (error) {
       throw new Error(`Failed to fetch song: ${error}`);
+    }
+  }
+
+  async fetchSongTags(songId) {
+    const url = `${PlanningCenterService.API_BASE_URL}/songs/${songId}/tags`;
+
+    try {
+      return await this.fetchJson(url);
+    } catch (error) {
+      // Possible to not throw error when tags fail, but keep going without tags
+      // throw new Error(`Failed to fetch song tags: ${error}`);
+      return [];
     }
   }
 
@@ -1146,9 +1171,22 @@ class StreamManager {
     console.debug("Songs:", songs);
 
     const songLines = songs.map((song) => {
-      const title = song.data.attributes.title;
-      const author = song.data.attributes.author;
-      return `${title} - ${author}`;
+      let usedTitle = song.data.attributes.title;
+
+      let match = usedTitle.match(/\((\d+)\)\s*$/);
+      let songNum = match ? parseInt(match[1], 10) : null;
+      let songText = match ? usedTitle.replace(/\s*\(\d+\)\s*$/, "").trim() : usedTitle.trim();
+
+      const tag = song.tag || "";
+      if (tag.toLowerCase().includes("opwekking")) {
+        if (songNum) {
+          return `${tag} ${songNum} - ${songText}`;
+        } else {
+          return `${tag} - ${songText}`;
+        }
+      }
+
+      return songText;
     });
 
     return StreamManager.DESCRIPTION_TEMPLATE.replace("{SONGS}", songLines.join("\n"));
