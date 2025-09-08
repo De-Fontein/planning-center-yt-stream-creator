@@ -839,7 +839,7 @@ class PlanningCenterService {
       const promises = songIds.map((songId) => this.fetchSongTags(songId));
       return await Promise.all(promises);
     } catch (error) {
-      throw new Error(`Failed to fetch songs: ${error}`);
+      throw new Error(`Failed to fetch song tags: ${error}`);
     }
   }
 
