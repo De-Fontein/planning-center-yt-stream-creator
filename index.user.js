@@ -771,6 +771,7 @@ class YouTubeAPIService {
 
 class PlanningCenterService {
   static API_BASE_URL = "https://api.planningcenteronline.com/services/v2";
+  static SONGBOOK_TAG_ID = "12345993";
 
   constructor() { }
 
@@ -806,28 +807,12 @@ class PlanningCenterService {
 
   /**
    * Gets the songs in a plan from PlanningCenter by its ID.
-   * @param {number} planId the ID of the plan
+   * @param {number[]} songIds the IDs of the songs
    * @returns {Promise<object>} the songs in the plan
    */
-  async fetchSongs(planId) {
-    const items = await this.fetchItems(planId);
-    const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
-
+  async fetchSongs(songIds) {
     try {
-      const promises = songIds.map((songId) =>
-        Promise.allSettled([
-          this.fetchSong(songId),
-          this.fetchSongTags(songId),
-        ]).then(([fetchedSong, fetchedTags]) => {
-          if (fetchedSong.status !== "fulfilled") throw fetchedSong.reason;
-
-          const song = fetchedSong.value;
-          const tag = (fetchedTags.status === "fulfilled") ? fetchedTags.value.data[0].attributes.name : "";
-
-          return { ...song, tag };
-        })
-      );
-
+      const promises = songIds.map((songId) => this.fetchSong(songId));
       return await Promise.all(promises);
     } catch (error) {
       throw new Error(`Failed to fetch songs: ${error}`);
@@ -841,6 +826,20 @@ class PlanningCenterService {
       return await this.fetchJson(url);
     } catch (error) {
       throw new Error(`Failed to fetch song: ${error}`);
+    }
+  }
+
+  /**
+   * Fetches all tags for the given song IDs.
+   * @param {number[]} songIds the IDs of the songs
+   * @returns {Promise<object[]>} the tags for the songs 
+   */
+  async fetchAllSongTags(songIds) {
+    try {
+      const promises = songIds.map((songId) => this.fetchSongTags(songId));
+      return await Promise.all(promises);
+    } catch (error) {
+      throw new Error(`Failed to fetch songs: ${error}`);
     }
   }
 
@@ -1167,29 +1166,50 @@ class StreamManager {
   }
 
   async getDescription(planId) {
-    const songs = await this.planningCenterService.fetchSongs(planId);
-    console.debug("Songs:", songs);
+    const items = await this.planningCenterService.fetchItems(planId);
+    const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
 
-    const songLines = songs.map((song) => {
-      let usedTitle = song.data.attributes.title;
+    const songs = await this.planningCenterService.fetchSongs(songIds);
+    const allTags = await this.planningCenterService.fetchAllSongTags(songIds);
 
-      let match = usedTitle.match(/\((\d+)\)\s*$/);
-      let songNum = match ? parseInt(match[1], 10) : null;
-      let songText = match ? usedTitle.replace(/\s*\(\d+\)\s*$/, "").trim() : usedTitle.trim();
-
-      const tag = song.tag || "";
-      if (tag.toLowerCase().includes("opwekking")) {
-        if (songNum) {
-          return `${tag} ${songNum} - ${songText}`;
-        } else {
-          return `${tag} - ${songText}`;
-        }
-      }
-
-      return songText;
+    songs.forEach((song, index) => {
+      const tagData = allTags[index]?.data || [];
+      const target = tagData.find(tag => String(tag.id) === PlanningCenterService.SONGBOOK_TAG_ID);
+      song.tag = target ? target.attributes.name : "";
     });
 
+    console.debug("Songs:", songs);
+
+    const songLines = songs.map(song => this.formatSongLine(song));
+
     return StreamManager.DESCRIPTION_TEMPLATE.replace("{SONGS}", songLines.join("\n"));
+  }
+
+  /**
+   * Formats a single song entry for the YouTube description.
+   * @param {object} song PlanningCenter song object (augmented with song.tag)
+   * @returns {string}
+   */
+  formatSongLine(song) {
+    const rawTitle = (song.data?.attributes?.title || "").trim();
+    const rawTag = (song.tag || "").trim();
+    const numMatch = rawTitle.match(/\((\d+)\)\s*$/);
+    const songNumber = numMatch ? Number(numMatch[1]) : null;
+    const baseTitle = rawTitle.replace(/\s*\(\d+\)\s*$/, "").trim();
+    const tagLower = rawTag.toLowerCase();
+
+    // Skip tag prefix only when tag is "overig" or empty
+    if (!rawTag || tagLower === "overig") {
+      return baseTitle;
+    }
+
+    if (tagLower.includes("opwekking")) {
+      return songNumber
+        ? `${rawTag} ${songNumber} - ${baseTitle}`
+        : `${rawTag} - ${baseTitle}`;
+    }
+
+    return `${rawTag} - ${baseTitle}`;
   }
 
   getPreacher(notes) {
