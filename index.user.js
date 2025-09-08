@@ -1203,10 +1203,9 @@ class StreamManager {
       return baseTitle;
     }
 
-    if (tagLower.includes("opwekking")) {
-      return songNumber
-        ? `${rawTag} ${songNumber} - ${baseTitle}`
-        : `${rawTag} - ${baseTitle}`;
+    // Always include the song number (after the tag) when one is found
+    if (songNumber) {
+      return `${rawTag} ${songNumber} - ${baseTitle}`;
     }
 
     return `${rawTag} - ${baseTitle}`;
