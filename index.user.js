@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      1.0.4
+// @version      1.0.5
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -771,6 +771,7 @@ class YouTubeAPIService {
 
 class PlanningCenterService {
   static API_BASE_URL = "https://api.planningcenteronline.com/services/v2";
+  static SONGBOOK_TAG_GROUP_ID = "2559219";
 
   constructor() { }
 
@@ -806,13 +807,10 @@ class PlanningCenterService {
 
   /**
    * Gets the songs in a plan from PlanningCenter by its ID.
-   * @param {number} planId the ID of the plan
+   * @param {number[]} songIds the IDs of the songs
    * @returns {Promise<object>} the songs in the plan
    */
-  async fetchSongs(planId) {
-    const items = await this.fetchItems(planId);
-    const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
-
+  async fetchSongs(songIds) {
     try {
       const promises = songIds.map((songId) => this.fetchSong(songId));
       return await Promise.all(promises);
@@ -828,6 +826,32 @@ class PlanningCenterService {
       return await this.fetchJson(url);
     } catch (error) {
       throw new Error(`Failed to fetch song: ${error}`);
+    }
+  }
+
+  /**
+   * Fetches all tags for the given song IDs.
+   * @param {number[]} songIds the IDs of the songs
+   * @returns {Promise<object[]>} the tags for the songs 
+   */
+  async fetchAllTags(songIds) {
+    try {
+      const promises = songIds.map((songId) => this.fetchTags(songId));
+      return await Promise.all(promises);
+    } catch (error) {
+      throw new Error(`Failed to fetch song tags: ${error}`);
+    }
+  }
+
+  async fetchTags(songId) {
+    const url = `${PlanningCenterService.API_BASE_URL}/songs/${songId}/tags`;
+
+    try {
+      return await this.fetchJson(url);
+    } catch (error) {
+      // Possible to not throw error when tags fail, but keep going without tags
+      // throw new Error(`Failed to fetch song tags: ${error}`);
+      return [];
     }
   }
 
@@ -1142,16 +1166,51 @@ class StreamManager {
   }
 
   async getDescription(planId) {
-    const songs = await this.planningCenterService.fetchSongs(planId);
-    console.debug("Songs:", songs);
+    const items = await this.planningCenterService.fetchItems(planId);
+    const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
 
-    const songLines = songs.map((song) => {
-      const title = song.data.attributes.title;
-      const author = song.data.attributes.author;
-      return `${title} - ${author}`;
+    const songs = await this.planningCenterService.fetchSongs(songIds);
+    const allTags = await this.planningCenterService.fetchAllTags(songIds);
+
+    console.debug("Tags:", allTags);
+
+    songs.forEach((song, index) => {
+      const tagData = allTags[index]?.data || [];
+      const target = tagData.find(tag => String(tag.relationships?.tag_group?.data?.id) === PlanningCenterService.SONGBOOK_TAG_GROUP_ID);
+      song.tag = target ? target.attributes.name : "";
     });
 
+    console.debug("Songs:", songs);
+
+    const songLines = songs.map(song => this.formatSongLine(song));
+
     return StreamManager.DESCRIPTION_TEMPLATE.replace("{SONGS}", songLines.join("\n"));
+  }
+
+  /**
+   * Formats a single song entry for the YouTube description.
+   * @param {object} song PlanningCenter song object (augmented with song.tag)
+   * @returns {string}
+   */
+  formatSongLine(song) {
+    const rawTitle = (song.data?.attributes?.title || "").trim();
+    const rawTag = (song.tag || "").trim();
+    const numMatch = rawTitle.match(/\((\d+)\)\s*$/);
+    const songNumber = numMatch ? Number(numMatch[1]) : null;
+    const baseTitle = rawTitle.replace(/\s*\(\d+\)\s*$/, "").trim();
+    const tagLower = rawTag.toLowerCase();
+
+    // Skip tag prefix only when tag is "overig" or empty
+    if (!rawTag || tagLower === "overig") {
+      return baseTitle;
+    }
+
+    // Always include the song number (after the tag) when one is found
+    if (songNumber) {
+      return `${rawTag} ${songNumber} - ${baseTitle}`;
+    }
+
+    return `${rawTag} - ${baseTitle}`;
   }
 
   getPreacher(notes) {
