@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/Auxority/planningcenter-yt-stream-creator
-// @version      1.0.4
+// @version      1.0.5
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
@@ -771,7 +771,7 @@ class YouTubeAPIService {
 
 class PlanningCenterService {
   static API_BASE_URL = "https://api.planningcenteronline.com/services/v2";
-  static SONGBOOK_TAG_ID = "12345993";
+  static SONGBOOK_TAG_GROUP_ID = "2559219";
 
   constructor() { }
 
@@ -834,16 +834,16 @@ class PlanningCenterService {
    * @param {number[]} songIds the IDs of the songs
    * @returns {Promise<object[]>} the tags for the songs 
    */
-  async fetchAllSongTags(songIds) {
+  async fetchAllTags(songIds) {
     try {
-      const promises = songIds.map((songId) => this.fetchSongTags(songId));
+      const promises = songIds.map((songId) => this.fetchTags(songId));
       return await Promise.all(promises);
     } catch (error) {
       throw new Error(`Failed to fetch song tags: ${error}`);
     }
   }
 
-  async fetchSongTags(songId) {
+  async fetchTags(songId) {
     const url = `${PlanningCenterService.API_BASE_URL}/songs/${songId}/tags`;
 
     try {
@@ -1170,11 +1170,13 @@ class StreamManager {
     const songIds = items.filter((item) => item.relationships.song.data !== null).map((item) => item.relationships.song.data.id);
 
     const songs = await this.planningCenterService.fetchSongs(songIds);
-    const allTags = await this.planningCenterService.fetchAllSongTags(songIds);
+    const allTags = await this.planningCenterService.fetchAllTags(songIds);
+
+    console.debug("Tags:", allTags);
 
     songs.forEach((song, index) => {
       const tagData = allTags[index]?.data || [];
-      const target = tagData.find(tag => String(tag.id) === PlanningCenterService.SONGBOOK_TAG_ID);
+      const target = tagData.find(tag => String(tag.relationships?.tag_group?.data?.id) === PlanningCenterService.SONGBOOK_TAG_GROUP_ID);
       song.tag = target ? target.attributes.name : "";
     });
 
