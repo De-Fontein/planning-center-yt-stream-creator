@@ -447,7 +447,7 @@ class AuthService {
 /**
  * A service that interacts with the YouTube API to create and manage streams.
  */
-class YouTubeApiService {
+class YouTubeAuthService {
   /**
    * The authentication service used to authenticate the user.
    * @type {AuthService}
@@ -665,7 +665,7 @@ class PlaylistItem {
    * Creates a new PlaylistItem from the provided playlist and video IDs.
    * @param {string} playlistId of a YouTube playlist
    * @param {string} videoId of a YouTube video
-   * @returns 
+   * @returns
    */
   static fromIds(playlistId, videoId) {
     const item = new PlaylistItem();
@@ -712,19 +712,19 @@ class PlaylistItem {
 class YouTubeAPIService {
   /**
    * The YouTube API service used to interact with the YouTube API.
-   * @type {YouTubeApiService}
+   * @type {YouTubeAuthService}
    */
-  apiService;
+  youtubeAuthService;
 
   CREATE_STREAM_ENDPOINT = "/liveBroadcasts?part=snippet,status";
 
   ADD_TO_PLAYLIST_ENDPOINT = "/playlistItems?part=snippet";
 
   /**
-   * @param {YouTubeApiService} apiService
+   * @param {YouTubeAuthService} youtubeAuthService
    */
-  constructor(apiService) {
-    this.apiService = apiService;
+  constructor(youtubeAuthService) {
+    this.youtubeAuthService = youtubeAuthService;
   }
 
   /**
@@ -732,12 +732,12 @@ class YouTubeAPIService {
    * @param {PlaylistItem} playlistItem item to add to the playlist
    */
   async addToPlaylist(playlistItem) {
-    const headers = this.apiService.getRequestHeaders();
+    const headers = this.youtubeAuthService.getRequestHeaders();
     headers.set("Content-Type", "application/json");
 
     const requestData = playlistItem.serialize();
 
-    const json = await this.apiService.executeRequest(this.ADD_TO_PLAYLIST_ENDPOINT, {
+    const json = await this.youtubeAuthService.executeRequest(this.ADD_TO_PLAYLIST_ENDPOINT, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestData),
@@ -752,12 +752,12 @@ class YouTubeAPIService {
    * @returns {Promise<string>} video id of the stream.
    */
   async uploadStream(stream) {
-    const headers = this.apiService.getRequestHeaders();
+    const headers = this.youtubeAuthService.getRequestHeaders();
     headers.set("Content-Type", "application/json");
 
     const requestData = stream.serialize();
 
-    const json = await this.apiService.executeRequest(this.CREATE_STREAM_ENDPOINT, {
+    const json = await this.youtubeAuthService.executeRequest(this.CREATE_STREAM_ENDPOINT, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestData),
@@ -832,7 +832,7 @@ class PlanningCenterService {
   /**
    * Fetches all tags for the given song IDs.
    * @param {number[]} songIds the IDs of the songs
-   * @returns {Promise<object[]>} the tags for the songs 
+   * @returns {Promise<object[]>} the tags for the songs
    */
   async fetchAllTags(songIds) {
     try {
@@ -1305,8 +1305,8 @@ class App {
     const tokenService = new TokenService();
     const clientIdService = new ClientIdService();
     this.authService = new AuthService(tokenService, clientIdService);
-    const apiService = new YouTubeApiService(this.authService);
-    const youtubeApiService = new YouTubeAPIService(apiService);
+    const youtubeAuthService = new YouTubeAuthService(this.authService);
+    const youtubeApiService = new YouTubeAPIService(youtubeAuthService);
     this.domService = new DomService(youtubeApiService);
     const planningCenterService = new PlanningCenterService();
     this.streamManager = new StreamManager(youtubeApiService, planningCenterService, this.domService);
