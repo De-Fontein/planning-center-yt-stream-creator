@@ -1132,7 +1132,6 @@ class StreamManager {
     console.debug("Stream button clicked.");
 
     const stream = await this.getStreamFromPlanId(planId);
-    console.log("stream test:", stream);
 
     const confirmed = this.domService.confirmStreamCreation(stream);
     if (confirmed) {
