@@ -460,6 +460,7 @@ class YouTubeAuthService {
   RETRY_DELAY_MS = 1000;
 
   YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3";
+  YOUTUBE_API_UPLOAD_BASE_URL = "https://www.googleapis.com/upload/youtube/v3";
 
   AUTHORIZATION_HEADER_KEY = "Authorization";
 
@@ -508,7 +509,11 @@ class YouTubeAuthService {
   }
 
   buildUrl(endpoint) {
-    return `${this.YOUTUBE_API_BASE_URL}${endpoint}`;
+    const base = endpoint.includes("/thumbnails/set")
+      ? this.YOUTUBE_API_UPLOAD_BASE_URL
+      : this.YOUTUBE_API_BASE_URL
+
+    return `${base}${endpoint}`;
   }
 
   delay(ms) {
@@ -582,7 +587,7 @@ class YouTubeStream {
   constructor() {
     this.title = "";
     this.startTime = new Date();
-    this.visibility = StreamVisibility.PUBLIC;
+    this.visibility = StreamVisibility.UNLISTED;
   }
 
   /**
@@ -720,6 +725,8 @@ class YouTubeAPIService {
 
   ADD_TO_PLAYLIST_ENDPOINT = "/playlistItems?part=snippet";
 
+  ADD_THUMBNAIL_ENDPOINT = "/thumbnails/set";
+
   /**
    * @param {YouTubeAuthService} youtubeAuthService
    */
@@ -744,6 +751,31 @@ class YouTubeAPIService {
     });
 
     console.debug("Playlist item added:", json);
+  }
+
+  /**
+   * Adds a thumbnail to a video using PlanningCenter thumbnail url.
+   * @param {string} videoId of the youtube video;
+   * @param {string} url of the thumbnail image;
+   * @param {string} content_type of the image;
+   */
+  async addThumbnail(videoId, url, content_type) {
+    const headers = this.youtubeAuthService.getRequestHeaders();
+    headers.set("Content-Type", content_type);
+
+    const file_response = await fetch(url);
+    const blob = await file_response.blob();
+
+    const json = await this.youtubeAuthService.executeRequest(`${this.ADD_THUMBNAIL_ENDPOINT}?videoId=${videoId}`, {
+      method: "POST",
+      headers: headers,
+      body: blob,
+    });
+
+    if (json === undefined) {
+      throw new Error(`Failed to upload thumbnail`);
+    }
+    console.debug("Thumbnail added:", json);
   }
 
   /**
@@ -851,6 +883,19 @@ class PlanningCenterService {
     } catch (error) {
       // Possible to not throw error when tags fail, but keep going without tags
       // throw new Error(`Failed to fetch song tags: ${error}`);
+      return [];
+    }
+  }
+
+  async fetchAttachments(planId) {
+    const url = `${this.buildPlanUrl(planId)}/attachments?order=size&where[filename_like]=thumbnail.`;
+
+    try {
+      const planAttachment = await this.fetchAllJsonData(url);
+      return planAttachment[0].attributes;
+    } catch (error) {
+      // Possible to not throw error when this fails, keep going without thumbnail.Possible
+      // throw new Error(`Failed to fetch attachments: ${error}`);
       return [];
     }
   }
@@ -1073,16 +1118,18 @@ class StreamManager {
     console.debug("Stream button clicked.");
 
     const stream = await this.getStreamFromPlanId(planId);
+    console.log("stream test:", stream);
 
     const confirmed = this.domService.confirmStreamCreation(stream);
     if (confirmed) {
       const videoId = await this.createStream(stream);
       console.debug(`Livestream video id: ${videoId}`);
 
-      console.info("Adding livestream to playlist");
-
+      // Need stream.description here for adding preacher playlist also
       const promises = StreamManager.ALL_PLAYLIST_IDS.map(id => this.addToPlaylist(id, videoId));
       await Promise.all(promises);
+
+      await this.addThumbnail(planId, videoId);
 
       alert("Stream created!");
     } else {
@@ -1097,10 +1144,44 @@ class StreamManager {
    * @returns {Promise<void>}
    */
   async addToPlaylist(id, videoId) {
-    console.info("Adding stream to playlist.");
+    console.debug("Adding stream to playlist.");
     const playlistItem = PlaylistItem.fromIds(id, videoId);
     await this.youtubeApiService.addToPlaylist(playlistItem);
-    console.info("Stream added to playlist.");
+    console.debug("Stream added to playlist.");
+  }
+
+  /**
+   * Adds a thumbnail to the stream using the provided details.
+   * @param {string} planId of the PlanningCenter plan
+   * @param {string} videoId of the video to add the thumbnail
+   * @returns {Promise<void>}
+   */
+  async addThumbnail(planId, videoId) {
+    console.debug("Adding thumbnail to video.");
+    const planAttachment = await this.planningCenterService.fetchAttachments(planId);
+
+    if (planAttachment.file_size <= 2097152 && planAttachment.filetype === "image") {
+      const file_url = planAttachment.url;
+      const backup_file_url = planAttachment.thumbnail_url;
+      const content_type = planAttachment.content_type;
+
+      try {
+        await this.youtubeApiService.addThumbnail(videoId, file_url, content_type);
+        console.log("Main thumbnail added to video.");
+      } catch (error) {
+        console.debug("Main thumbnail error: ", error);
+        console.debug("Continuing with backup thumbnail");
+        try {
+          await this.youtubeApiService.addThumbnail(videoId, backup_file_url, content_type);
+          console.log("Backup thumbnail added to video.");
+        } catch (error) {
+          console.debug("Backup thumbnail error: ", error);
+          console.debug("Stopping and keeping standard thumbnail");
+        }
+      }
+    } else {
+      console.debug("Stopping and keeping standard thumbnail");
+    }
   }
 
   async getStreamFromPlanId(planId) {
