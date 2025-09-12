@@ -587,7 +587,7 @@ class YouTubeStream {
   constructor() {
     this.title = "";
     this.startTime = new Date();
-    this.visibility = StreamVisibility.UNLISTED;
+    this.visibility = StreamVisibility.PUBLIC;
   }
 
   /**
@@ -1057,6 +1057,20 @@ class StreamManager {
     "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf", // All Preachers Playlist
     "PL-sPk2tbAU2Pa6pSNB3YDQJOFoJptZt5k" // Current Season Playlist
   ];
+  static PREACHER_PLAYLIST_IDS = {
+    "leander janse": "PL-sPk2tbAU2NcW17OnFlSh-hO1JjpT9Fp",
+    "mathijs page": "PL-sPk2tbAU2MA4dGc7v2d7zdbULt3axYh",
+    "paul van 't veer": "PL-sPk2tbAU2Pg6YGd6suZ0Brb9-avYI2z"
+  };
+
+  static normalizeStr(s) {
+    return (s || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  }
+
   static PREACHER_NOTE_CATEGORY = "Spreker";
   static THEME_NOTE_CATEGORY = "Thema";
   static DESCRIPTION_TEMPLATE = [
@@ -1125,8 +1139,16 @@ class StreamManager {
       const videoId = await this.createStream(stream);
       console.debug(`Livestream video id: ${videoId}`);
 
-      // Need stream.description here for adding preacher playlist also
-      const promises = StreamManager.ALL_PLAYLIST_IDS.map(id => this.addToPlaylist(id, videoId));
+      const preacherRaw = (stream?.title || "").split("|").map(p => p.trim())[1] || "";
+      const preacherKey = StreamManager.normalizeStr(preacherRaw);
+
+      const playlistIds = new Set(StreamManager.ALL_PLAYLIST_IDS);
+      const preacherPid = StreamManager.PREACHER_PLAYLIST_IDS[preacherKey];
+      if (preacherPid) {
+        playlistIds.add(preacherPid);
+      }
+
+      const promises = [...playlistIds].map(id => this.addToPlaylist(id, videoId));
       await Promise.all(promises);
 
       await this.addThumbnail(planId, videoId);
