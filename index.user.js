@@ -901,7 +901,7 @@ class PlanningCenterService {
         return null;
       }
     } catch (error) {
-      // Possible to not throw error when this fails, keep going without thumbnail.Possible
+      // Possible to not throw error when this fails, keep going without thumbnail.
       // throw new Error(`Failed to fetch attachments: ${error}`);
       return null;
     }
