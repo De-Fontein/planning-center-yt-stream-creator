@@ -447,7 +447,7 @@ class AuthService {
 /**
  * A service that interacts with the YouTube API to create and manage streams.
  */
-class YouTubeApiService {
+class YouTubeAuthService {
   /**
    * The authentication service used to authenticate the user.
    * @type {AuthService}
@@ -460,6 +460,7 @@ class YouTubeApiService {
   RETRY_DELAY_MS = 1000;
 
   YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3";
+  YOUTUBE_API_UPLOAD_BASE_URL = "https://www.googleapis.com/upload/youtube/v3";
 
   AUTHORIZATION_HEADER_KEY = "Authorization";
 
@@ -474,25 +475,24 @@ class YouTubeApiService {
 
   /**
    * Executes an API request to the YouTube API.
-   * @param {string} endpoint - The API endpoint to call.
+   * @param {string} url - The API url to call.
    * @param {unknown} options - The options to pass to the fetch request.
    * @returns {Promise<unknown>} The response data from the API.
    */
-  async executeRequest(endpoint, options = {}) {
-    const url = this.buildUrl(endpoint);
+  async executeRequest(url, options = {}) {
     options.headers = options.headers || new Headers();
     options.headers.set(this.AUTHORIZATION_HEADER_KEY, this.getBearerToken());
     console.debug(`Executing request to ${url}`);
 
     try {
       const res = await fetch(url, options);
-      return await this.handleResponse(res, endpoint, options);
+      return await this.handleResponse(res, url, options);
     } catch (err) {
       console.error(err);
     }
   }
 
-  async handleResponse(res, endpoint, options) {
+  async handleResponse(res, url, options) {
     console.debug(res);
     if (res.ok) {
       return await res.json();
@@ -501,7 +501,7 @@ class YouTubeApiService {
       // This delay is here to prevent the API from being spammed with requests if the user is not authenticated.
       await this.delay(this.RETRY_DELAY_MS);
       // Retry the request after re-authentication
-      return await this.executeRequest(endpoint, options);
+      return await this.executeRequest(url, options);
     }
 
     throw new Error("Failed to fetch YouTube data.");
@@ -509,6 +509,10 @@ class YouTubeApiService {
 
   buildUrl(endpoint) {
     return `${this.YOUTUBE_API_BASE_URL}${endpoint}`;
+  }
+
+  buildUploadUrl(endpoint) {
+    return `${this.YOUTUBE_API_UPLOAD_BASE_URL}${endpoint}`;
   }
 
   delay(ms) {
@@ -665,7 +669,7 @@ class PlaylistItem {
    * Creates a new PlaylistItem from the provided playlist and video IDs.
    * @param {string} playlistId of a YouTube playlist
    * @param {string} videoId of a YouTube video
-   * @returns 
+   * @returns
    */
   static fromIds(playlistId, videoId) {
     const item = new PlaylistItem();
@@ -712,19 +716,21 @@ class PlaylistItem {
 class YouTubeAPIService {
   /**
    * The YouTube API service used to interact with the YouTube API.
-   * @type {YouTubeApiService}
+   * @type {YouTubeAuthService}
    */
-  apiService;
+  youtubeAuthService;
 
   CREATE_STREAM_ENDPOINT = "/liveBroadcasts?part=snippet,status";
 
   ADD_TO_PLAYLIST_ENDPOINT = "/playlistItems?part=snippet";
 
+  ADD_THUMBNAIL_ENDPOINT = "/thumbnails/set";
+
   /**
-   * @param {YouTubeApiService} apiService
+   * @param {YouTubeAuthService} youtubeAuthService
    */
-  constructor(apiService) {
-    this.apiService = apiService;
+  constructor(youtubeAuthService) {
+    this.youtubeAuthService = youtubeAuthService;
   }
 
   /**
@@ -732,12 +738,13 @@ class YouTubeAPIService {
    * @param {PlaylistItem} playlistItem item to add to the playlist
    */
   async addToPlaylist(playlistItem) {
-    const headers = this.apiService.getRequestHeaders();
+    const headers = this.youtubeAuthService.getRequestHeaders();
     headers.set("Content-Type", "application/json");
 
     const requestData = playlistItem.serialize();
 
-    const json = await this.apiService.executeRequest(this.ADD_TO_PLAYLIST_ENDPOINT, {
+    const apiUrl = this.youtubeAuthService.buildUrl(this.ADD_TO_PLAYLIST_ENDPOINT);
+    const json = await this.youtubeAuthService.executeRequest(apiUrl, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestData),
@@ -747,17 +754,45 @@ class YouTubeAPIService {
   }
 
   /**
+   * Adds a thumbnail to a video using PlanningCenter thumbnail url.
+   * @param {string} videoId of the youtube video;
+   * @param {string} url of the thumbnail image;
+   * @param {string} contentType of the image;
+   */
+  async addThumbnail(videoId, url, contentType) {
+    const headers = this.youtubeAuthService.getRequestHeaders();
+    headers.set("Content-Type", contentType);
+
+    const file_response = await fetch(url);
+    const blob = await file_response.blob();
+
+    try {
+      const apiUrl = `${this.youtubeAuthService.buildUploadUrl(this.ADD_THUMBNAIL_ENDPOINT)}?videoId=${videoId}`;
+      const json = await this.youtubeAuthService.executeRequest(apiUrl, {
+        method: "POST",
+        headers: headers,
+        body: blob,
+      });
+
+      console.debug("Thumbnail added:", json);
+    } catch (error) {
+      throw new Error(`Failed to upload thumbnail: ${error}`);
+    }
+  }
+
+  /**
    * Uploads a stream to YouTube.
    * @param {YouTubeStream} stream
    * @returns {Promise<string>} video id of the stream.
    */
   async uploadStream(stream) {
-    const headers = this.apiService.getRequestHeaders();
+    const headers = this.youtubeAuthService.getRequestHeaders();
     headers.set("Content-Type", "application/json");
 
     const requestData = stream.serialize();
 
-    const json = await this.apiService.executeRequest(this.CREATE_STREAM_ENDPOINT, {
+    const apiUrl = this.youtubeAuthService.buildUrl(this.CREATE_STREAM_ENDPOINT);
+    const json = await this.youtubeAuthService.executeRequest(apiUrl, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestData),
@@ -832,7 +867,7 @@ class PlanningCenterService {
   /**
    * Fetches all tags for the given song IDs.
    * @param {number[]} songIds the IDs of the songs
-   * @returns {Promise<object[]>} the tags for the songs 
+   * @returns {Promise<object[]>} the tags for the songs
    */
   async fetchAllTags(songIds) {
     try {
@@ -852,6 +887,23 @@ class PlanningCenterService {
       // Possible to not throw error when tags fail, but keep going without tags
       // throw new Error(`Failed to fetch song tags: ${error}`);
       return [];
+    }
+  }
+
+  async fetchAttachments(planId) {
+    const url = `${this.buildPlanUrl(planId)}/attachments?order=size&where[filename_like]=thumbnail.`;
+
+    try {
+      const planAttachment = await this.fetchAllJsonData(url);
+      if (planAttachment.length > 0 && planAttachment[0] && planAttachment[0].attributes) {
+        return planAttachment[0].attributes;
+      } else {
+        return null;
+      }
+    } catch (error) {
+      // Possible to not throw error when this fails, keep going without thumbnail.
+      // throw new Error(`Failed to fetch attachments: ${error}`);
+      return null;
     }
   }
 
@@ -1012,6 +1064,20 @@ class StreamManager {
     "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf", // All Preachers Playlist
     "PL-sPk2tbAU2Pa6pSNB3YDQJOFoJptZt5k" // Current Season Playlist
   ];
+  static PREACHER_PLAYLIST_IDS = {
+    "leander janse": "PL-sPk2tbAU2NcW17OnFlSh-hO1JjpT9Fp",
+    "mathijs page": "PL-sPk2tbAU2MA4dGc7v2d7zdbULt3axYh",
+    "paul van 't veer": "PL-sPk2tbAU2Pg6YGd6suZ0Brb9-avYI2z"
+  };
+
+  static normalizeStr(s) {
+    return (s || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  }
+
   static PREACHER_NOTE_CATEGORY = "Spreker";
   static THEME_NOTE_CATEGORY = "Thema";
   static DESCRIPTION_TEMPLATE = [
@@ -1024,6 +1090,8 @@ class StreamManager {
     "Wil je meer weten over kerk De Fontein of in contact komen met ons? Bezoek dan onze website https://www.kerkdefontein.nl/",
     "Liever mailen? Dat kan via info@kerkdefontein.nl",
   ].join("\n");
+
+  static MAX_THUMBNAIL_SIZE_BYTES = 2 * 1024 * 1024;
 
   /**
    * The YouTube stream service used to interact with the YouTube API.
@@ -1079,10 +1147,19 @@ class StreamManager {
       const videoId = await this.createStream(stream);
       console.debug(`Livestream video id: ${videoId}`);
 
-      console.info("Adding livestream to playlist");
+      const preacherRaw = (stream?.title || "").split("|").map(p => p.trim())[1] || "";
+      const preacherKey = StreamManager.normalizeStr(preacherRaw);
 
-      const promises = StreamManager.ALL_PLAYLIST_IDS.map(id => this.addToPlaylist(id, videoId));
+      const playlistIds = new Set(StreamManager.ALL_PLAYLIST_IDS);
+      const preacherPid = StreamManager.PREACHER_PLAYLIST_IDS[preacherKey];
+      if (preacherPid) {
+        playlistIds.add(preacherPid);
+      }
+
+      const promises = [...playlistIds].map(id => this.addToPlaylist(id, videoId));
       await Promise.all(promises);
+
+      await this.addThumbnail(planId, videoId);
 
       alert("Stream created!");
     } else {
@@ -1097,10 +1174,58 @@ class StreamManager {
    * @returns {Promise<void>}
    */
   async addToPlaylist(id, videoId) {
-    console.info("Adding stream to playlist.");
+    console.debug("Adding stream to playlist.");
     const playlistItem = PlaylistItem.fromIds(id, videoId);
     await this.youtubeApiService.addToPlaylist(playlistItem);
-    console.info("Stream added to playlist.");
+    console.debug("Stream added to playlist.");
+  }
+
+  /**
+   * Tries to add a thumbnail to the stream using the provided details.
+   * @param {string} videoId to add the thumbnail.
+   * @param {string} thumbnailUrl in PlanningCenter.
+   * @param {string} contentType of the thumbnail.
+   * @param {string} label of which url it is (Main or Backup).
+   * @returns {Promise<void>}
+   */
+  async tryAddThumbnail(videoId, thumbnailUrl, contentType, label) {
+    if (!thumbnailUrl) {
+      console.debug(`${label} thumbnail not available, skipping...`);
+      return false;
+    }
+
+    try {
+      await this.youtubeApiService.addThumbnail(videoId, thumbnailUrl, contentType);
+      console.debug(`${label} thumbnail added to video`);
+      return true;
+    } catch (error) {
+      console.debug(`${label} thumbnail error: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Gets thumbnail from PlanningCenter and tries main (or backup) thumbnail to add to video.
+   * @param {string} planId of the PlanningCenter plan
+   * @param {string} videoId of the video to add the thumbnail
+   * @returns {Promise<void>}
+   */
+  async addThumbnail(planId, videoId) {
+    console.info("Adding thumbnail to video.");
+    const planAttachment = await this.planningCenterService.fetchAttachments(planId);
+
+    if (planAttachment && planAttachment.file_size <= StreamManager.MAX_THUMBNAIL_SIZE_BYTES && planAttachment.filetype === "image") {
+      const fileUrl = planAttachment.url;
+      const backupFileUrl = planAttachment.thumbnail_url;
+      const contentType = planAttachment.content_type;
+
+      const success = await this.tryAddThumbnail(videoId, fileUrl, contentType, "Main");
+      if (!success) {
+        await this.tryAddThumbnail(videoId, backupFileUrl, contentType, "Backup");
+      }
+    } else {
+      console.debug("Stopping and keeping standard thumbnail");
+    }
   }
 
   async getStreamFromPlanId(planId) {
@@ -1305,8 +1430,8 @@ class App {
     const tokenService = new TokenService();
     const clientIdService = new ClientIdService();
     this.authService = new AuthService(tokenService, clientIdService);
-    const apiService = new YouTubeApiService(this.authService);
-    const youtubeApiService = new YouTubeAPIService(apiService);
+    const youtubeAuthService = new YouTubeAuthService(this.authService);
+    const youtubeApiService = new YouTubeAPIService(youtubeAuthService);
     this.domService = new DomService(youtubeApiService);
     const planningCenterService = new PlanningCenterService();
     this.streamManager = new StreamManager(youtubeApiService, planningCenterService, this.domService);
