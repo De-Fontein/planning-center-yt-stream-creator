@@ -475,25 +475,24 @@ class YouTubeAuthService {
 
   /**
    * Executes an API request to the YouTube API.
-   * @param {string} endpoint - The API endpoint to call.
+   * @param {string} url - The API url to call.
    * @param {unknown} options - The options to pass to the fetch request.
    * @returns {Promise<unknown>} The response data from the API.
    */
-  async executeRequest(endpoint, options = {}) {
-    const url = this.buildUrl(endpoint);
+  async executeRequest(url, options = {}) {
     options.headers = options.headers || new Headers();
     options.headers.set(this.AUTHORIZATION_HEADER_KEY, this.getBearerToken());
     console.debug(`Executing request to ${url}`);
 
     try {
       const res = await fetch(url, options);
-      return await this.handleResponse(res, endpoint, options);
+      return await this.handleResponse(res, url, options);
     } catch (err) {
       console.error(err);
     }
   }
 
-  async handleResponse(res, endpoint, options) {
+  async handleResponse(res, url, options) {
     console.debug(res);
     if (res.ok) {
       return await res.json();
@@ -502,18 +501,18 @@ class YouTubeAuthService {
       // This delay is here to prevent the API from being spammed with requests if the user is not authenticated.
       await this.delay(this.RETRY_DELAY_MS);
       // Retry the request after re-authentication
-      return await this.executeRequest(endpoint, options);
+      return await this.executeRequest(url, options);
     }
 
     throw new Error("Failed to fetch YouTube data.");
   }
 
   buildUrl(endpoint) {
-    const base = endpoint.includes("/thumbnails/set")
-      ? this.YOUTUBE_API_UPLOAD_BASE_URL
-      : this.YOUTUBE_API_BASE_URL
+    return `${this.YOUTUBE_API_BASE_URL}${endpoint}`;
+  }
 
-    return `${base}${endpoint}`;
+  buildUploadUrl(endpoint) {
+    return `${this.YOUTUBE_API_UPLOAD_BASE_URL}${endpoint}`;
   }
 
   delay(ms) {
@@ -744,7 +743,8 @@ class YouTubeAPIService {
 
     const requestData = playlistItem.serialize();
 
-    const json = await this.youtubeAuthService.executeRequest(this.ADD_TO_PLAYLIST_ENDPOINT, {
+    const apiUrl = this.youtubeAuthService.buildUrl(this.ADD_TO_PLAYLIST_ENDPOINT);
+    const json = await this.youtubeAuthService.executeRequest(apiUrl, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestData),
@@ -757,25 +757,27 @@ class YouTubeAPIService {
    * Adds a thumbnail to a video using PlanningCenter thumbnail url.
    * @param {string} videoId of the youtube video;
    * @param {string} url of the thumbnail image;
-   * @param {string} content_type of the image;
+   * @param {string} contentType of the image;
    */
-  async addThumbnail(videoId, url, content_type) {
+  async addThumbnail(videoId, url, contentType) {
     const headers = this.youtubeAuthService.getRequestHeaders();
-    headers.set("Content-Type", content_type);
+    headers.set("Content-Type", contentType);
 
     const file_response = await fetch(url);
     const blob = await file_response.blob();
 
-    const json = await this.youtubeAuthService.executeRequest(`${this.ADD_THUMBNAIL_ENDPOINT}?videoId=${videoId}`, {
-      method: "POST",
-      headers: headers,
-      body: blob,
-    });
+    try {
+      const apiUrl = `${this.youtubeAuthService.buildUploadUrl(this.ADD_THUMBNAIL_ENDPOINT)}?videoId=${videoId}`;
+      const json = await this.youtubeAuthService.executeRequest(apiUrl, {
+        method: "POST",
+        headers: headers,
+        body: blob,
+      });
 
-    if (json === undefined) {
-      throw new Error(`Failed to upload thumbnail`);
+      console.debug("Thumbnail added:", json);
+    } catch (error) {
+      throw new Error(`Failed to upload thumbnail: ${error}`);
     }
-    console.debug("Thumbnail added:", json);
   }
 
   /**
@@ -789,7 +791,8 @@ class YouTubeAPIService {
 
     const requestData = stream.serialize();
 
-    const json = await this.youtubeAuthService.executeRequest(this.CREATE_STREAM_ENDPOINT, {
+    const apiUrl = this.youtubeAuthService.buildUrl(this.CREATE_STREAM_ENDPOINT);
+    const json = await this.youtubeAuthService.executeRequest(apiUrl, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestData),
@@ -892,11 +895,15 @@ class PlanningCenterService {
 
     try {
       const planAttachment = await this.fetchAllJsonData(url);
-      return planAttachment[0].attributes;
+      if (planAttachment.length > 0 && planAttachment[0] && planAttachment[0].attributes) {
+        return planAttachment[0].attributes;
+      } else {
+        return null;
+      }
     } catch (error) {
       // Possible to not throw error when this fails, keep going without thumbnail.Possible
       // throw new Error(`Failed to fetch attachments: ${error}`);
-      return [];
+      return null;
     }
   }
 
@@ -1084,6 +1091,8 @@ class StreamManager {
     "Liever mailen? Dat kan via info@kerkdefontein.nl",
   ].join("\n");
 
+  static MAX_THUMBNAIL_SIZE_BYTES = 2 * 1024 * 1024;
+
   /**
    * The YouTube stream service used to interact with the YouTube API.
    * @type {YouTubeAPIService}
@@ -1172,33 +1181,47 @@ class StreamManager {
   }
 
   /**
-   * Adds a thumbnail to the stream using the provided details.
+   * Tries to add a thumbnail to the stream using the provided details.
+   * @param {string} videoId to add the thumbnail.
+   * @param {string} thumbnailUrl in PlanningCenter.
+   * @param {string} contentType of the thumbnail.
+   * @param {string} label of which url it is (Main or Backup).
+   * @returns {Promise<void>}
+   */
+  async tryAddThumbnail(videoId, thumbnailUrl, contentType, label) {
+    if (!thumbnailUrl) {
+      console.debug(`${label} thumbnail not available, skipping...`);
+      return false;
+    }
+
+    try {
+      await this.youtubeApiService.addThumbnail(videoId, thumbnailUrl, contentType);
+      console.debug(`${label} thumbnail added to video`);
+      return true;
+    } catch (error) {
+      console.debug(`${label} thumbnail error: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Gets thumbnail from PlanningCenter and tries main (or backup) thumbnail to add to video.
    * @param {string} planId of the PlanningCenter plan
    * @param {string} videoId of the video to add the thumbnail
    * @returns {Promise<void>}
    */
   async addThumbnail(planId, videoId) {
-    console.debug("Adding thumbnail to video.");
+    console.info("Adding thumbnail to video.");
     const planAttachment = await this.planningCenterService.fetchAttachments(planId);
 
-    if (planAttachment.file_size <= 2097152 && planAttachment.filetype === "image") {
-      const file_url = planAttachment.url;
-      const backup_file_url = planAttachment.thumbnail_url;
-      const content_type = planAttachment.content_type;
+    if (planAttachment && planAttachment.file_size <= StreamManager.MAX_THUMBNAIL_SIZE_BYTES && planAttachment.filetype === "image") {
+      const fileUrl = planAttachment.url;
+      const backupFileUrl = planAttachment.thumbnail_url;
+      const contentType = planAttachment.content_type;
 
-      try {
-        await this.youtubeApiService.addThumbnail(videoId, file_url, content_type);
-        console.log("Main thumbnail added to video.");
-      } catch (error) {
-        console.debug("Main thumbnail error: ", error);
-        console.debug("Continuing with backup thumbnail");
-        try {
-          await this.youtubeApiService.addThumbnail(videoId, backup_file_url, content_type);
-          console.log("Backup thumbnail added to video.");
-        } catch (error) {
-          console.debug("Backup thumbnail error: ", error);
-          console.debug("Stopping and keeping standard thumbnail");
-        }
+      const success = await this.tryAddThumbnail(videoId, fileUrl, contentType, "Main");
+      if (!success) {
+        await this.tryAddThumbnail(videoId, backupFileUrl, contentType, "Backup");
       }
     } else {
       console.debug("Stopping and keeping standard thumbnail");
