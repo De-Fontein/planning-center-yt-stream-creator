@@ -890,20 +890,78 @@ class PlanningCenterService {
     }
   }
 
+  /**
+   * Fetches the thumbnail for the video/stream with the given planId.
+   * @param {number} planId the ID of the plan.
+   * @returns {Promise<object>} the attributes of 1 thumbnail or null.
+   */
+  async fetchThumbnail(planId) {
+    try {
+      const attachments = await this.fetchAttachments(planId);
+      const attachmentTypeIds = [...new Set(attachments.data
+        .flatMap(item =>
+          item?.relationships?.attachment_types?.data?.map(at => at.id) || []
+        ))];
+
+      const attachmentTypes = await this.fetchAttachmentTypes(attachmentTypeIds);
+      const attachmentTypeMap = new Map(attachmentTypes.map(at => [at.data?.id, at.data?.attributes?.name]));
+
+      attachments.data.forEach(item => {
+        const ids = item?.relationships?.attachment_types?.data?.map(at => at.id) || [];
+        const names = ids.map(id => attachmentTypeMap.get(id)).filter(Boolean);
+
+        item.attributes.attachment_types = names.length ? names : [];
+      });
+
+      attachments.data = attachments.data.filter(item => {
+        const types = item.attributes?.attachment_types ?? [];
+        const isThumbnail = types.includes(StreamManager.THUMBNAIL_ATTACHMENT_NAME);
+        const isImage = item.attributes?.filetype === StreamManager.THUMBNAIL_FILE_TYPE;
+        const withinSizeLimit = item.attributes?.file_size <= StreamManager.THUMBNAIL_MAX_SIZE_BYTES;
+        return isThumbnail && isImage && withinSizeLimit;
+      });
+
+      if (attachments.data.length > 1) {
+        attachments.data = [attachments.data[0]];
+      }
+
+      return attachments.data[0].attributes;
+    } catch (error) {
+      console.debug(`Error fetching thumbnail: ${error}`);
+      return null;
+    }
+  }
+
   async fetchAttachments(planId) {
-    const url = `${this.buildPlanUrl(planId)}/attachments?order=size&where[filename_like]=thumbnail.`;
+    const url = `${this.buildPlanUrl(planId)}/attachments`;
 
     try {
-      const planAttachment = await this.fetchAllJsonData(url);
-      if (planAttachment.length > 0 && planAttachment[0] && planAttachment[0].attributes) {
-        return planAttachment[0].attributes;
-      } else {
-        return null;
-      }
+      return await this.fetchJson(url);
     } catch (error) {
       // Possible to not throw error when this fails, keep going without thumbnail.
       // throw new Error(`Failed to fetch attachments: ${error}`);
       return null;
+    }
+  }
+
+  async fetchAttachmentTypes(typeIds) {
+    try {
+      const promises = typeIds.map((typeId) => this.fetchAttachmentType(typeId));
+      return await Promise.all(promises);
+    } catch (error) {
+      // Possible to not throw error when this fails, keep going without thumbnail.
+      // throw new Error(`Failed to fetch attachment types: ${error}`);
+      return null;
+    }
+  }
+
+  async fetchAttachmentType(typeId) {
+    const url = `${PlanningCenterService.API_BASE_URL}/attachment_types/${typeId}`;
+
+    try {
+      return await this.fetchJson(url);
+    } catch (error) {
+      throw new Error(`Failed to fetch attachment type: ${error}`);
     }
   }
 
@@ -1091,7 +1149,9 @@ class StreamManager {
     "Liever mailen? Dat kan via info@kerkdefontein.nl",
   ].join("\n");
 
-  static MAX_THUMBNAIL_SIZE_BYTES = 2 * 1024 * 1024;
+  static THUMBNAIL_ATTACHMENT_NAME = "Thumbnail";
+  static THUMBNAIL_FILE_TYPE = "image";
+  static THUMBNAIL_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 
   /**
    * The YouTube stream service used to interact with the YouTube API.
@@ -1147,6 +1207,7 @@ class StreamManager {
       const videoId = await this.createStream(stream);
       console.debug(`Livestream video id: ${videoId}`);
 
+      // Get the preacher key to add automatically to correct preacher playlist.
       const preacherRaw = (stream?.title || "").split("|").map(p => p.trim())[1] || "";
       const preacherKey = StreamManager.normalizeStr(preacherRaw);
 
@@ -1158,6 +1219,7 @@ class StreamManager {
 
       const promises = [...playlistIds].map(id => this.addToPlaylist(id, videoId));
       await Promise.all(promises);
+      console.info("Stream added to playlist(s).");
 
       await this.addThumbnail(planId, videoId);
 
@@ -1211,18 +1273,19 @@ class StreamManager {
    * @returns {Promise<void>}
    */
   async addThumbnail(planId, videoId) {
-    console.info("Adding thumbnail to video.");
-    const planAttachment = await this.planningCenterService.fetchAttachments(planId);
-
-    if (planAttachment && planAttachment.file_size <= StreamManager.MAX_THUMBNAIL_SIZE_BYTES && planAttachment.filetype === "image") {
-      const fileUrl = planAttachment.url;
-      const backupFileUrl = planAttachment.thumbnail_url;
-      const contentType = planAttachment.content_type;
+    console.debug("Adding thumbnail to video.");
+    const thumbnail = await this.planningCenterService.fetchThumbnail(planId);
+    if (thumbnail) {
+      const fileUrl = thumbnail.url;
+      const backupFileUrl = thumbnail.thumbnail_url;
+      const contentType = thumbnail.content_type;
 
       const success = await this.tryAddThumbnail(videoId, fileUrl, contentType, "Main");
       if (!success) {
         await this.tryAddThumbnail(videoId, backupFileUrl, contentType, "Backup");
       }
+
+      console.info("Stream thumbnail added.");
     } else {
       console.debug("Stopping and keeping standard thumbnail");
     }
