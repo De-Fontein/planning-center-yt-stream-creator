@@ -898,36 +898,20 @@ class PlanningCenterService {
   async fetchThumbnail(planId) {
     try {
       const attachments = await this.fetchAttachments(planId);
-      const attachmentTypeIds = [...new Set(attachments.data
-        .flatMap(item =>
-          item?.relationships?.attachment_types?.data?.map(at => at.id) || []
-        ))];
+      const attachmentTypeIds = await this.getUniqueAttachmentTypeIds(attachments);
 
       const attachmentTypes = await this.fetchAttachmentTypes(attachmentTypeIds);
-      const attachmentTypeMap = new Map(attachmentTypes.map(at => [at.data?.id, at.data?.attributes?.name]));
+      const attachmentTypeMap = new Map((attachmentTypes ?? []).map(at => [at.data?.id, at.data?.attributes?.name]));
 
-      attachments.data.forEach(item => {
-        const ids = item?.relationships?.attachment_types?.data?.map(at => at.id) || [];
-        const names = ids.map(id => attachmentTypeMap.get(id)).filter(Boolean);
-
-        item.attributes.attachment_types = names.length ? names : [];
-      });
-
-      attachments.data = attachments.data.filter(item => {
-        const types = item.attributes?.attachment_types ?? [];
-        const isThumbnail = types.includes(StreamManager.THUMBNAIL_ATTACHMENT_NAME);
-        const isImage = item.attributes?.filetype === StreamManager.THUMBNAIL_FILE_TYPE;
-        const withinSizeLimit = item.attributes?.file_size <= StreamManager.THUMBNAIL_MAX_SIZE_BYTES;
-        return isThumbnail && isImage && withinSizeLimit;
-      });
-
-      if (attachments.data.length > 1) {
-        attachments.data = [attachments.data[0]];
+      const attachmentsWithTypes = await this.getValidAttachmentsWithTypes(attachments, attachmentTypeMap);
+      if (!attachmentsWithTypes.data.length) {
+        console.debug(`Error fetching thumbnail (data length): ${error}`);
+        return null;
       }
 
-      return attachments.data[0].attributes;
+      return attachmentsWithTypes.data[0].attributes;
     } catch (error) {
-      console.debug(`Error fetching thumbnail: ${error}`);
+      console.log(`Error fetching thumbnail: ${error}`);
       return null;
     }
   }
@@ -944,6 +928,16 @@ class PlanningCenterService {
     }
   }
 
+  async getUniqueAttachmentTypeIds(attachments) {
+    try {
+      return [...new Set(attachments.data.flatMap(item =>
+        item?.relationships?.attachment_types?.data?.map(at => at.id) || []
+      ))];
+    } catch (error) {
+      throw new Error(`Failed to get unique attachment type ids from attachments: ${error}`);
+    }
+  }
+
   async fetchAttachmentTypes(typeIds) {
     try {
       const promises = typeIds.map((typeId) => this.fetchAttachmentType(typeId));
@@ -951,7 +945,7 @@ class PlanningCenterService {
     } catch (error) {
       // Possible to not throw error when this fails, keep going without thumbnail.
       // throw new Error(`Failed to fetch attachment types: ${error}`);
-      return null;
+      return [];
     }
   }
 
@@ -962,6 +956,46 @@ class PlanningCenterService {
       return await this.fetchJson(url);
     } catch (error) {
       throw new Error(`Failed to fetch attachment type: ${error}`);
+    }
+  }
+
+  async getValidAttachmentsWithTypes(attachments, attachmentTypeMap) {
+    try {
+      let atData = attachments.data.map(item => {
+        const ids = item?.relationships?.attachment_types?.data?.map(at => at.id) || [];
+        const names = ids.map(id => attachmentTypeMap.get(id)).filter(Boolean);
+
+        return {
+          ...item,
+          attributes: {
+              ...item.attributes,
+            attachment_types: names
+          }
+        };
+      });
+
+      atData = await this.isValidThumbnail(atData);
+
+      return {
+        ...attachments,
+        data: atData
+      };
+    } catch (error) {
+      throw new Error(`Failed to combine types with the attachments: ${error}`);
+    }
+  }
+
+  async isValidThumbnail(atData) {
+    try {
+      return atData.filter(item => {
+        const types = item.attributes?.attachment_types ?? [];
+        const isThumbnail = types.includes(StreamManager.THUMBNAIL_ATTACHMENT_NAME);
+        const isImage = item.attributes?.filetype === StreamManager.THUMBNAIL_FILE_TYPE;
+        const withinSizeLimit = item.attributes?.file_size <= StreamManager.THUMBNAIL_MAX_SIZE_BYTES;
+        return isThumbnail && isImage && withinSizeLimit;
+      });
+    } catch (error) {
+      throw new Error(`Failed to validate thumbnail from atData: ${error}`);
     }
   }
 
