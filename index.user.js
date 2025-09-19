@@ -911,7 +911,7 @@ class PlanningCenterService {
 
       return attachmentsWithTypes.data[0].attributes;
     } catch (error) {
-      console.log(`Error fetching thumbnail: ${error}`);
+      console.debug(`Error fetching thumbnail: ${error}`);
       return null;
     }
   }
