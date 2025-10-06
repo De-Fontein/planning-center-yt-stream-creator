@@ -1065,6 +1065,8 @@ class DomService {
     youtubeButton.id = DomService.STREAM_BUTTON_ID;
     youtubeButton.innerText = "New Stream";
     youtubeButton.setAttribute("aria-label", "New Stream");
+    youtubeButton.style.backgroundColor = "rgba(108, 156, 64, 0.7)";
+    youtubeButton.style.fontWeight = "bold";
 
     originalButton.parentNode.prepend(youtubeButton);
 
@@ -1242,7 +1244,7 @@ class StreamManager {
       console.debug(`Livestream video id: ${videoId}`);
 
       // Get the preacher key to add automatically to correct preacher playlist.
-      const preacherRaw = (stream?.title || "").split("|").map(p => p.trim())[1] || "";
+      const preacherRaw = (stream?.title || "").split("|").map(p => p.trim()).slice(-2, -1)[0] || "";
       const preacherKey = StreamManager.normalizeStr(preacherRaw);
 
       const playlistIds = new Set(StreamManager.ALL_PLAYLIST_IDS);
