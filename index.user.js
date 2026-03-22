@@ -1186,9 +1186,9 @@ class StreamManager {
     "",
     "© Auteursrecht & Licenties",
     "Muziek gebruikt met toestemming onder de volgende licenties:",
-    "- CCLI Liedlicentie #751750",
-    "- CCLI Streaming Plus-licentie #2156913",
-    "- BUMA Uitvoeringslicentie #22440687",
+    "- CCLI Liedlicentie 751750",
+    "- CCLI Streaming Plus-licentie 2156913",
+    "- BUMA Uitvoeringslicentie 22440687",
   ].join("\n");
 
   static THUMBNAIL_ATTACHMENT_NAME = "Thumbnail";
