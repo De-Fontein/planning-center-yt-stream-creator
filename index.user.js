@@ -1184,11 +1184,11 @@ class StreamManager {
     "Wil je meer weten over kerk De Fontein of in contact komen met ons? Bezoek dan onze website https://www.kerkdefontein.nl/",
     "Liever mailen? Dat kan via info@kerkdefontein.nl",
     "",
-    "© Copyright & Licenses",
-    "Music used with permission under the following licenses:",
-    "- CCLI Song License #751750",
-    "- CCLI Streaming Plus License #2156913",
-    "- BUMA Performance License #22440687",
+    "© Auteursrecht & Licenties",
+    "Muziek gebruikt met toestemming onder de volgende licenties:",
+    "- CCLI Liedlicentie #751750",
+    "- CCLI Streaming Plus-licentie #2156913",
+    "- BUMA Uitvoeringslicentie #22440687",
   ].join("\n");
 
   static THUMBNAIL_ATTACHMENT_NAME = "Thumbnail";
