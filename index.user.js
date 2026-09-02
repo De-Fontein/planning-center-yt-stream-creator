@@ -1156,7 +1156,7 @@ class StreamManager {
   static ALL_PLAYLIST_IDS = [
     "PL-sPk2tbAU2MrOKm0AlBSqSVeZsK1xanp", // Standard Playlist
     "PL-sPk2tbAU2PRg6JjO47vYbI3h4oLRLYf", // All Preachers Playlist
-    "PL-sPk2tbAU2Pa6pSNB3YDQJOFoJptZt5k" // Current Season Playlist
+    "PLMkWgLNNJzTY" // Current Season Playlist
   ];
   static PREACHER_PLAYLIST_IDS = {
     "leander janse": "PL-sPk2tbAU2NcW17OnFlSh-hO1JjpT9Fp",
