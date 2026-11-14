@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlanningCenter YouTube Integration
 // @namespace    https://github.com/De-Fontein/planning-center-yt-stream-creator
-// @version      1.0.12
+// @version      1.0.13
 // @description  Allows you to create a YouTube stream from a PlanningCenter service plan.
 // @author       Auxority
 // @match        https://services.planningcenteronline.com/*
