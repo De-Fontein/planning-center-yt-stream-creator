@@ -9,6 +9,9 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
+// @grant        GM.xmlHttpRequest
+// @connect      services.planningcenteronline.com
+// @connect      images.planningcenterusercontent.com
 // @license      MIT
 // @downloadURL https://github.com/De-Fontein/planning-center-yt-stream-creator/raw/refs/heads/main/index.user.js
 // @updateURL https://github.com/De-Fontein/planning-center-yt-stream-creator/raw/refs/heads/main/index.user.js
@@ -489,6 +492,7 @@ class YouTubeAuthService {
       return await this.handleResponse(res, url, options);
     } catch (err) {
       console.error(err);
+      throw err;
     }
   }
 
@@ -504,7 +508,8 @@ class YouTubeAuthService {
       return await this.executeRequest(url, options);
     }
 
-    throw new Error("Failed to fetch YouTube data.");
+    const errorBody = await res.text();
+    throw new Error(`YouTube HTTP ${res.status}: ${errorBody}`);
   }
 
   buildUrl(endpoint) {
@@ -760,24 +765,58 @@ class YouTubeAPIService {
    * @param {string} contentType of the image;
    */
   async addThumbnail(videoId, url, contentType) {
-    const headers = this.youtubeAuthService.getRequestHeaders();
-    headers.set("Content-Type", contentType);
+    const download = await GM.xmlHttpRequest({
+      method: "GET",
+      url,
+      responseType: "blob",
+      timeout: 30000,
+    });
 
-    const file_response = await fetch(url);
-    const blob = await file_response.blob();
-
-    try {
-      const apiUrl = `${this.youtubeAuthService.buildUploadUrl(this.ADD_THUMBNAIL_ENDPOINT)}?videoId=${videoId}`;
-      const json = await this.youtubeAuthService.executeRequest(apiUrl, {
-        method: "POST",
-        headers: headers,
-        body: blob,
-      });
-
-      console.debug("Thumbnail added:", json);
-    } catch (error) {
-      throw new Error(`Failed to upload thumbnail: ${error}`);
+    if (download.status < 200 || download.status >= 300) {
+      throw new Error(
+        `Thumbnail download failed: HTTP ${download.status}`
+      );
     }
+
+    const blob = download.response;
+
+    if (!blob || blob.size === 0) {
+      throw new Error("Downloaded thumbnail is empty.");
+    }
+
+    const mimeType = (blob.type || contentType || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+
+    if (!["image/jpeg", "image/png", "application/octet-stream"].includes(mimeType)) {
+      throw new Error(`Unexpected thumbnail content type: ${mimeType}`);
+    }
+
+    console.debug("Thumbnail downloaded:", {
+      mimeType,
+      bytes: blob.size,
+    });
+
+    const headers = this.youtubeAuthService.getRequestHeaders();
+    headers.set("Content-Type", mimeType);
+
+    const apiUrl = new URL(
+      this.youtubeAuthService.buildUploadUrl(this.ADD_THUMBNAIL_ENDPOINT)
+    );
+    apiUrl.searchParams.set("videoId", videoId);
+
+    const json = await this.youtubeAuthService.executeRequest(
+      apiUrl.toString(),
+      {
+        method: "POST",
+        headers,
+        body: blob,
+      }
+    );
+
+    console.debug("Thumbnail added:", json);
+    return json;
   }
 
   /**
@@ -1326,12 +1365,16 @@ class StreamManager {
       const backupFileUrl = thumbnail.thumbnail_url;
       const contentType = thumbnail.content_type;
 
-      const success = await this.tryAddThumbnail(videoId, fileUrl, contentType, "Main");
+      let success = await this.tryAddThumbnail(videoId, fileUrl, contentType, "Main");
       if (!success) {
-        await this.tryAddThumbnail(videoId, backupFileUrl, contentType, "Backup");
+        success = await this.tryAddThumbnail(videoId, backupFileUrl, contentType, "Backup");
       }
 
-      console.info("Stream thumbnail added.");
+      if (success) {
+        console.info("Stream thumbnail added.");
+      } else {
+        console.warn("Geen thumbnail toegevoegd.");
+      }
     } else {
       console.debug("Stopping and keeping standard thumbnail");
     }
